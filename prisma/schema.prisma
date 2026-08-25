@@ -1,0 +1,235 @@
+// schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  // Connection URLs live in prisma.config.ts (Prisma 7+).
+}
+
+// Single-admin app: exactly one User row should ever exist (see
+// src/lib/current-user.ts). clientSeq backs Client.clientNumber allocation.
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  passwordHash  String?
+  emailVerified DateTime?
+  image         String?
+  accounts      Account[]
+  sessions      Session[]
+
+  businessProfile BusinessProfile?
+  clients         Client[]
+  documents       Document[]
+  clientSeq       Int       @default(0) // next Client.clientNumber to hand out
+  createdAt       DateTime  @default(now())
+}
+
+model Account {
+  id                 String  @id @default(cuid())
+  userId             String
+  type               String
+  provider           String
+  providerAccountId  String
+  refresh_token      String?  @db.Text
+  access_token       String?  @db.Text
+  expires_at         Int?
+  token_type         String?
+  scope              String?
+  id_token           String?  @db.Text
+  session_state      String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model BusinessProfile {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  businessName  String
+  ownerName     String
+  email         String
+  phone         String?
+  address       String?
+  website       String?
+  taxId         String?
+  logoUrl       String?
+  brandColor    String?  @default("#000000")
+  paymentMethod String?
+  bankName      String?
+  accountNumber String?
+  routingSwift  String?
+  upiId         String?  // UPI VPA for QR-based payment, e.g. name@bank (phase 2 QR code)
+  currency      String?  @default("USD") // default currency for new documents
+
+  // Defaults copied onto new documents; editable per-document afterwards.
+  defaultTaxMode         TaxMode  @default(NONE)
+  defaultTaxRate         Decimal? @db.Decimal(5, 2)
+  defaultTaxLabel        String?
+  defaultPaymentTermDays Int?     @default(15)
+
+  // Signature shown on contracts as the issuer's counter-signature.
+  signatureName      String?
+  signatureImageUrl  String?
+
+  updatedAt DateTime @updatedAt
+}
+
+// A client's `code` (e.g. "ACME") is auto-suggested from their business name
+// and is editable up until their first document is finalized - after that it
+// is locked server-side, because every issued refNumber embeds it
+// (INV-ACME-001) and an edited code would orphan historical serials.
+model Client {
+  id              String     @id @default(cuid())
+  userId          String
+  user            User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clientNumber    Int        // sequential internal id, assigned from User.clientSeq
+  code            String     // short uppercase code used in document serials
+  fullName        String
+  businessName    String?
+  email           String
+  phone           String?
+  address         String?
+  country         String?
+  taxId           String?    // GSTIN or equivalent, shown on invoices when set
+  notes           String?
+  tags            String[]   // e.g. ["active", "video", "high-value"]
+  defaultCurrency String?    // overrides BusinessProfile.currency for this client
+  archivedAt      DateTime?
+
+  // Per-client serial counters. Incremented transactionally in
+  // src/lib/allocate-ref.ts when a document is finalized - never on create,
+  // so deleting a draft never leaves a gap in issued numbers.
+  invoiceSeq  Int @default(0)
+  contractSeq Int @default(0)
+
+  documents Document[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  @@unique([userId, code])
+  @@index([userId, archivedAt])
+}
+
+enum DocumentType {
+  INVOICE
+  CONTRACT
+  QUOTE // scaffolded for phase 2 (quote -> invoice conversion); no editor yet
+}
+
+// Lifecycle only - money status (paid/partial/overdue) is derived from
+// Document.amountPaid vs totalAmount/dueDate, not stored here, so it can
+// never drift out of sync with the Payment ledger.
+enum DocumentStatus {
+  DRAFT     // editable, unnumbered, not shareable
+  FINALIZED // numbered + snapshotted + shareable; "SENT" for invoices
+  SIGNED    // contracts only, after e-signature; permanently locked
+  VOID      // cancelled after finalize; number stays allocated (no reuse)
+  ARCHIVED
+}
+
+enum TaxMode {
+  NONE
+  PERCENTAGE
+}
+
+model Document {
+  id       String @id @default(cuid())
+  userId   String
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clientId String?
+  client   Client? @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  type   DocumentType
+  status DocumentStatus @default(DRAFT)
+
+  // refNumber/sequence are NULL while DRAFT and assigned atomically on
+  // finalize by src/lib/allocate-ref.ts, e.g. "INV-ACME-001" / sequence 1.
+  refNumber String?
+  sequence  Int?
+
+  title   String?
+  content Json // line items / clauses; frozen (no longer read from live
+  // Client/BusinessProfile rows) once status leaves DRAFT - see
+  // src/lib/snapshot.ts
+
+  currency String  @default("USD")
+  taxMode  TaxMode @default(NONE)
+  taxRate  Decimal? @db.Decimal(5, 2)
+  taxLabel String?
+
+  subtotal    Decimal? @db.Decimal(12, 2)
+  taxAmount   Decimal? @db.Decimal(12, 2)
+  totalAmount Decimal? @db.Decimal(12, 2)
+  amountPaid  Decimal  @default(0) @db.Decimal(12, 2)
+
+  issueDate DateTime?
+  dueDate   DateTime?
+
+  finalizedAt DateTime?
+
+  publicSlug    String?    @unique // random token, not derived from id
+  slugRevokedAt DateTime?
+
+  signatureData Json? // e-signature payload for CONTRACT documents
+  contentHash   String? // sha256 of `content` at finalize/sign time, so a
+
+  // later edit can never be passed off as what was actually signed
+  payments Payment[]
+  activity DocumentActivity[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, refNumber])
+  @@index([userId, type])
+  @@index([userId, status])
+  @@index([clientId])
+}
+
+model Payment {
+  id         String   @id @default(cuid())
+  documentId String
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  amount     Decimal  @db.Decimal(12, 2)
+  paidOn     DateTime
+  method     String? // "UPI", "Bank transfer", "Cash", ...
+  reference  String?
+  note       String?
+  createdAt  DateTime @default(now())
+
+  @@index([documentId])
+}
+
+model DocumentActivity {
+  id         String   @id @default(cuid())
+  documentId String
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  event      String // "created" | "finalized" | "shared" | "viewed" |
+  // "downloaded" | "signed" | "payment_recorded" | "voided"
+  meta      Json?
+  createdAt DateTime @default(now())
+
+  @@index([documentId, createdAt])
+}
