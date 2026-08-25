@@ -1,3 +1,4 @@
+import { cache } from "react"
 import { cookies } from "next/headers"
 import { redirect } from "next/navigation"
 import { createClient } from "@/utils/supabase/server"
@@ -10,7 +11,11 @@ import prisma from "@/lib/db"
 // - this check is the layer that survives that misconfiguration: it runs on
 // every dashboard page and server action via getCurrentUser(), so a
 // non-admin session never reaches a data query no matter how it authenticated.
-export async function getCurrentUser() {
+// Memoized per request: this runs on every dashboard page and server action,
+// and each call costs a Supabase round-trip plus a user upsert. React.cache
+// scope is a single request, so a new request still re-validates the session
+// - the single-admin check below is not weakened by this.
+export const getCurrentUser = cache(async () => {
   const cookieStore = await cookies()
   const supabase = createClient(cookieStore)
   const { data } = await supabase.auth.getUser()
@@ -45,4 +50,4 @@ export async function getCurrentUser() {
   })
 
   return user
-}
+})

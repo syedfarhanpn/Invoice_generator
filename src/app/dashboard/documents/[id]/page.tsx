@@ -7,25 +7,27 @@ export default async function DocumentPage(props: { params: Promise<{ id: string
   const params = await props.params
   const user = await getCurrentUser()
 
-  const document = await prisma.document.findUnique({
-    where: { id: params.id, userId: user.id },
-    include: {
-      client: true,
-      payments: { orderBy: { paidOn: "desc" } },
-      activity: { orderBy: { createdAt: "desc" } },
-    },
-  })
+  // All three only depend on user.id, so they run as one round-trip instead
+  // of three sequential ones - this page is the slowest in the app.
+  const [document, businessProfile, clients] = await Promise.all([
+    prisma.document.findUnique({
+      where: { id: params.id, userId: user.id },
+      include: {
+        client: true,
+        payments: { orderBy: { paidOn: "desc" } },
+        activity: { orderBy: { createdAt: "desc" } },
+      },
+    }),
+    prisma.businessProfile.findUnique({
+      where: { userId: user.id },
+    }),
+    prisma.client.findMany({
+      where: { userId: user.id, archivedAt: null },
+      orderBy: { fullName: "asc" },
+    }),
+  ])
 
   if (!document) return notFound()
-
-  const businessProfile = await prisma.businessProfile.findUnique({
-    where: { userId: user.id },
-  })
-
-  const clients = await prisma.client.findMany({
-    where: { userId: user.id, archivedAt: null },
-    orderBy: { fullName: "asc" },
-  })
 
   return (
     <div className="h-[calc(100vh-8rem)] w-full -m-4 md:-m-8">
