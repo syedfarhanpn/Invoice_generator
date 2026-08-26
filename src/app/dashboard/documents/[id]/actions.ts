@@ -9,6 +9,7 @@ import { buildSnapshot } from "@/lib/snapshot"
 import { hashContent } from "@/lib/hash"
 import { generatePublicSlug } from "@/lib/slug"
 import { computeTotals } from "@/lib/money"
+import { documentKind } from "@/lib/document-kinds"
 import type { InvoiceContent, ContractContent } from "@/lib/types"
 
 async function loadOwnedDocument(id: string, userId: string) {
@@ -46,7 +47,9 @@ export async function updateDocument(id: string, data: UpdateDocumentInput) {
   let taxAmount: number | null = null
   let totalAmount: number | null = null
 
-  if (doc.type === "INVOICE") {
+  // Quotes and proformas price up exactly like an invoice, so they get the
+  // same totals treatment - only the meaning of the document differs.
+  if (documentKind(doc.type).isLineItemDoc) {
     const content = data.content as InvoiceContent
     const totals = computeTotals(content.lineItems || [], data.currency, data.taxMode, data.taxRate)
     subtotal = totals.subtotal
@@ -95,7 +98,7 @@ export async function finalizeDocument(id: string) {
     throw new Error("Select a client before finalizing - it's required to allocate the serial number.")
   }
 
-  if (doc.type === "INVOICE") {
+  if (documentKind(doc.type).isLineItemDoc) {
     const content = doc.content as unknown as InvoiceContent
     const hasLineItem = (content.lineItems || []).some((li) => li.description?.trim())
     if (!hasLineItem) throw new Error("Add at least one line item before finalizing.")
@@ -136,6 +139,101 @@ export async function finalizeDocument(id: string) {
   revalidatePath(`/dashboard/documents/${id}`)
   revalidatePath("/dashboard/documents")
   revalidatePath("/dashboard")
+}
+
+// ---------------------------------------------------------------------------
+// Quote / proforma -> invoice.
+//
+// Copies forward into a NEW draft invoice rather than mutating the source.
+// The quote keeps its own QUO- number and stays readable at its old share
+// link, which is what makes the pair auditable: you can always show what was
+// quoted and what was then billed. The new invoice starts as a DRAFT and
+// takes its own INV- number at its own finalize, so an unaccepted quote
+// never burns an invoice number.
+// ---------------------------------------------------------------------------
+export async function convertToInvoice(id: string): Promise<{ invoiceId: string }> {
+  const user = await getCurrentUser()
+  const source = await prisma.document.findUnique({
+    where: { id, userId: user.id },
+    include: { convertedTo: { select: { id: true, refNumber: true } } },
+  })
+  if (!source) throw new Error("Document not found")
+
+  const kind = documentKind(source.type)
+  if (!kind.convertsToInvoice) {
+    throw new Error(`A ${kind.label.toLowerCase()} cannot be converted into an invoice.`)
+  }
+  if (source.status === "DRAFT") {
+    throw new Error(`Finalize this ${kind.label.toLowerCase()} before converting it into an invoice.`)
+  }
+  if (source.status === "VOID") {
+    throw new Error("This document was voided and cannot be converted.")
+  }
+  // One invoice per source, so a double-click cannot bill the client twice.
+  if (source.convertedTo.length > 0) {
+    const existing = source.convertedTo[0]
+    throw new Error(
+      `This ${kind.label.toLowerCase()} was already converted into ${existing.refNumber || "a draft invoice"}.`
+    )
+  }
+
+  // Rebuild the content explicitly rather than spreading: that drops the
+  // source snapshot, so the invoice takes a fresh one at its own finalize.
+  const sourceContent = source.content as unknown as InvoiceContent
+  const content: InvoiceContent = {
+    lineItems: sourceContent.lineItems || [],
+    notes: sourceContent.notes || "",
+  }
+
+  const invoice = await prisma.$transaction(async (tx) => {
+    const created = await tx.document.create({
+      data: {
+        userId: user.id,
+        clientId: source.clientId,
+        type: "INVOICE",
+        status: "DRAFT",
+        title: source.title,
+        currency: source.currency,
+        taxMode: source.taxMode,
+        taxRate: source.taxRate,
+        taxLabel: source.taxLabel,
+        subtotal: source.subtotal,
+        taxAmount: source.taxAmount,
+        totalAmount: source.totalAmount,
+        issueDate: new Date(),
+        // Deliberately not copied: the source dueDate is a "valid until" date,
+        // which means something different on an invoice.
+        dueDate: null,
+        content: content as unknown as Prisma.InputJsonValue,
+        convertedFromId: source.id,
+      },
+    })
+
+    await tx.documentActivity.create({
+      data: {
+        documentId: source.id,
+        event: "converted",
+        meta: { toDocumentId: created.id },
+      },
+    })
+    await tx.documentActivity.create({
+      data: {
+        documentId: created.id,
+        event: "created_from_conversion",
+        meta: { fromDocumentId: source.id, fromRefNumber: source.refNumber },
+      },
+    })
+
+    return created
+  })
+
+  revalidatePath(`/dashboard/documents/${id}`)
+  revalidatePath("/dashboard/documents")
+  revalidatePath("/dashboard")
+
+  // Returned rather than redirected: the caller wraps this in try/catch, and
+  // a redirect() throws, which that catch would swallow as a failure.
+  return { invoiceId: invoice.id }
 }
 
 // ---------------------------------------------------------------------------
@@ -221,7 +319,11 @@ async function resyncAmountPaid(tx: Prisma.TransactionClient, documentId: string
 export async function recordPayment(documentId: string, input: RecordPaymentInput) {
   const user = await getCurrentUser()
   const doc = await loadOwnedDocument(documentId, user.id)
-  if (doc.type !== "INVOICE") throw new Error("Payments can only be recorded on invoices.")
+  // Only a real invoice is a receivable. Letting a quote or proforma carry
+  // payments would put money into the dashboard totals that was never billed.
+  if (!documentKind(doc.type).tracksPayments) {
+    throw new Error(`Payments can only be recorded on invoices, not on a ${documentKind(doc.type).label.toLowerCase()}.`)
+  }
   if (doc.status === "DRAFT") throw new Error("Finalize the invoice before recording a payment.")
   if (!(input.amount > 0)) throw new Error("Payment amount must be greater than zero.")
 

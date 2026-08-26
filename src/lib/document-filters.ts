@@ -12,11 +12,21 @@ import { paymentSummary } from "./money"
  * filter, even though its badge reads "Partial" (the label check for a
  * payment on file wins over the due date).
  */
-export type FilterKey = "all" | "drafts" | "invoiced" | "outstanding" | "paid" | "overdue"
+export type FilterKey =
+  | "all"
+  | "drafts"
+  | "quotes"
+  | "proformas"
+  | "invoiced"
+  | "outstanding"
+  | "paid"
+  | "overdue"
 
 export const DOCUMENT_FILTERS: { key: FilterKey; label: string }[] = [
   { key: "all", label: "All" },
   { key: "drafts", label: "Drafts" },
+  { key: "quotes", label: "Quotations" },
+  { key: "proformas", label: "Proformas" },
   { key: "invoiced", label: "Invoiced" },
   { key: "outstanding", label: "Outstanding" },
   { key: "paid", label: "Paid" },
@@ -42,6 +52,11 @@ export function parseFilter(value: string | undefined): FilterKey {
 export function matchesFilter(doc: FilterableDoc, key: FilterKey): boolean {
   if (key === "all") return true
   if (key === "drafts") return doc.status === "DRAFT"
+
+  // Type filters, not money views - a quote counts as a quote whether it is
+  // still a draft, issued, or already converted.
+  if (key === "quotes") return doc.type === "QUOTE"
+  if (key === "proformas") return doc.type === "PROFORMA"
 
   // Everything below is a money view of an issued invoice. Contracts have no
   // payment ledger, and drafts/voids were never billed, so they never match.

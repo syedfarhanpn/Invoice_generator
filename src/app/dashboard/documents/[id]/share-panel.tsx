@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState, useSyncExternalStore } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -15,13 +15,17 @@ export default function SharePanel({
   publicSlug: string | null
 }) {
   const router = useRouter()
-  const [origin, setOrigin] = useState("")
   const [busy, setBusy] = useState(false)
   const [copied, setCopied] = useState(false)
 
-  useEffect(() => {
-    setOrigin(window.location.origin)
-  }, [])
+  // window.location is browser-only. useSyncExternalStore lets us state the
+  // server snapshot ("" - no absolute URL is knowable during SSR) explicitly,
+  // instead of setting it from an effect and forcing a second render.
+  const origin = useSyncExternalStore(
+    () => () => {}, // the origin never changes, so there is nothing to subscribe to
+    () => window.location.origin,
+    () => ""
+  )
 
   const shareUrl = publicSlug ? `${origin}/share/${publicSlug}` : null
 

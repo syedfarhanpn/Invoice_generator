@@ -1,10 +1,11 @@
-import type { Prisma } from "@prisma/client"
+import type { DocumentType, Prisma } from "@prisma/client"
 
-const PREFIX = {
-  INVOICE: "INV",
-  CONTRACT: "CON",
-  QUOTE: "QUO",
-} as const
+import { documentKind } from "./document-kinds"
+
+// Allowlist for the column name interpolated into the raw SQL below. The
+// value already comes from a hardcoded config table, but the query is built
+// by string interpolation, so it is checked against this list before use.
+const SEQ_COLUMNS = ["invoiceSeq", "contractSeq", "quoteSeq", "proformaSeq"] as const
 
 function pad(n: number): string {
   return n.toString().padStart(3, "0")
@@ -21,15 +22,19 @@ function pad(n: number): string {
  * that lock is ever bypassed.
  *
  * Only call this at finalize time, never at document creation - see the
- * comment on Client.invoiceSeq/contractSeq in prisma/schema.prisma for why
+ * comment on the Client serial counters in prisma/schema.prisma for why
  * numbers are assigned late (keeps the sequence gapless).
  */
 export async function allocateRef(
   tx: Prisma.TransactionClient,
   clientId: string,
-  type: keyof typeof PREFIX
+  type: DocumentType
 ): Promise<{ refNumber: string; sequence: number }> {
-  const column = type === "CONTRACT" ? "contractSeq" : "invoiceSeq"
+  const kind = documentKind(type)
+  const column = kind.seqColumn
+  if (!SEQ_COLUMNS.includes(column)) {
+    throw new Error(`Refusing to allocate a serial from an unknown column: ${column}`)
+  }
 
   const rows = await tx.$queryRawUnsafe<{ code: string; seq: number }[]>(
     `SELECT "code", "${column}" AS seq FROM "Client" WHERE "id" = $1 FOR UPDATE`,
@@ -45,7 +50,7 @@ export async function allocateRef(
   const nextSeq = row.seq + 1
   await tx.$executeRawUnsafe(`UPDATE "Client" SET "${column}" = $1 WHERE "id" = $2`, nextSeq, clientId)
 
-  return { refNumber: `${PREFIX[type]}-${row.code}-${pad(nextSeq)}`, sequence: nextSeq }
+  return { refNumber: `${kind.prefix}-${row.code}-${pad(nextSeq)}`, sequence: nextSeq }
 }
 
 /**

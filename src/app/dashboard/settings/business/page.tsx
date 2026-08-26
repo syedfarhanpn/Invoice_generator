@@ -133,7 +133,7 @@ export default async function BusinessProfileSettings() {
           <Card>
             <CardHeader>
               <CardTitle>Invoice Defaults</CardTitle>
-              <CardDescription>Pre-fills every new invoice - still editable per document while it's a draft.</CardDescription>
+              <CardDescription>Pre-fills every new invoice - still editable per document while it&apos;s a draft.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

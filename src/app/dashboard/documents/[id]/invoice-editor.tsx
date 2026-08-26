@@ -1,6 +1,7 @@
 "use client"
 
 import { useMemo, useState } from "react"
+import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -9,15 +10,17 @@ import { Card } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
-import { Trash2, Plus, Save, CheckCircle2, Ban, Trash } from "lucide-react"
+import { Trash2, Plus, Save, CheckCircle2, Ban, Trash, FileOutput, ArrowUpRight } from "lucide-react"
 import type { BusinessProfile, Client, Document } from "@prisma/client"
-import { updateDocument, finalizeDocument, voidDocument, deleteDraftDocument } from "./actions"
+import { updateDocument, finalizeDocument, voidDocument, deleteDraftDocument, convertToInvoice } from "./actions"
 import InvoicePreview from "./previews/invoice-preview"
 import SharePanel from "./share-panel"
 import PaymentsPanel from "./payments-panel"
 import { CURRENCIES } from "@/lib/currencies"
 import type { InvoiceContent, InvoiceLineItem } from "@/lib/types"
 import { computeTotals, formatMoney } from "@/lib/money"
+import { documentKind } from "@/lib/document-kinds"
+import type { ConversionLink } from "./document-editor"
 
 type PaymentRow = {
   id: string
@@ -34,13 +37,21 @@ export default function InvoiceEditor({
   clients,
   payments,
 }: {
-  document: Document & { client: Client | null }
+  document: Document & {
+    client: Client | null
+    convertedTo: ConversionLink[]
+    convertedFrom: ConversionLink | null
+  }
   businessProfile: BusinessProfile | null
   clients: Client[]
   payments: PaymentRow[]
 }) {
   const router = useRouter()
   const isDraft = document.status === "DRAFT"
+  // Labels, capabilities and wording all come from one table so a quote and
+  // a proforma can share this editor without a pile of type checks.
+  const kind = documentKind(document.type)
+  const convertedInvoice = document.convertedTo[0] ?? null
   const initialContent = (document.content as unknown as InvoiceContent) || { lineItems: [], notes: "" }
 
   const [title, setTitle] = useState(document.title || "")
@@ -58,6 +69,7 @@ export default function InvoiceEditor({
 
   const [isSaving, setIsSaving] = useState(false)
   const [isFinalizing, setIsFinalizing] = useState(false)
+  const [isConverting, setIsConverting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const selectedClient = clients.find((c) => c.id === clientId) || document.client || undefined
@@ -101,7 +113,7 @@ export default function InvoiceEditor({
   }
 
   async function handleFinalize() {
-    if (!confirm("Finalize this invoice? It will be numbered and locked, and can no longer be edited.")) return
+    if (!confirm(`Finalize this ${kind.label.toLowerCase()}? It will be numbered and locked, and can no longer be edited.`)) return
     setIsFinalizing(true)
     setError(null)
     try {
@@ -116,9 +128,22 @@ export default function InvoiceEditor({
   }
 
   async function handleVoid() {
-    if (!confirm("Void this invoice? This cannot be undone, and its number will not be reused.")) return
+    if (!confirm(`Void this ${kind.label.toLowerCase()}? This cannot be undone, and its number will not be reused.`)) return
     await voidDocument(document.id)
     router.refresh()
+  }
+
+  async function handleConvert() {
+    if (!confirm(`Create a draft invoice from this ${kind.label.toLowerCase()}? It stays untouched and keeps its own number.`)) return
+    setIsConverting(true)
+    setError(null)
+    try {
+      const { invoiceId } = await convertToInvoice(document.id)
+      router.push(`/dashboard/documents/${invoiceId}`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not convert")
+      setIsConverting(false)
+    }
   }
 
   async function handleDelete() {
@@ -132,7 +157,7 @@ export default function InvoiceEditor({
       <div className="w-full md:w-[440px] lg:w-[480px] border-r bg-background flex flex-col h-full">
         <div className="p-4 border-b flex items-center justify-between sticky top-0 bg-background z-10">
           <div>
-            <div className="font-semibold">{document.refNumber || "Invoice (draft)"}</div>
+            <div className="font-semibold">{document.refNumber || `${kind.label} (draft)`}</div>
             <div className="text-xs text-muted-foreground">{isDraft ? "Editable" : "Finalized - read only"}</div>
           </div>
           {isDraft ? (
@@ -145,13 +170,35 @@ export default function InvoiceEditor({
               </Button>
             </div>
           ) : document.status !== "VOID" ? (
-            <Button onClick={handleVoid} size="sm" variant="outline">
-              <Ban className="w-4 h-4 mr-2" /> Void
-            </Button>
+            <div className="flex gap-2">
+              {kind.convertsToInvoice && !convertedInvoice && (
+                <Button onClick={handleConvert} size="sm" disabled={isConverting}>
+                  <FileOutput className="w-4 h-4 mr-2" /> {isConverting ? "Converting..." : "Convert to Invoice"}
+                </Button>
+              )}
+              <Button onClick={handleVoid} size="sm" variant="outline">
+                <Ban className="w-4 h-4 mr-2" /> Void
+              </Button>
+            </div>
           ) : null}
         </div>
 
         {error && <div className="px-4 pt-3 text-sm text-destructive">{error}</div>}
+
+        {(convertedInvoice || document.convertedFrom) && (
+          <div className="border-b bg-muted/50 px-4 py-2 text-xs text-muted-foreground">
+            {convertedInvoice && (
+              <Link href={`/dashboard/documents/${convertedInvoice.id}`} className="inline-flex items-center gap-1 hover:text-foreground hover:underline">
+                Converted to {convertedInvoice.refNumber || "a draft invoice"} <ArrowUpRight className="size-3" />
+              </Link>
+            )}
+            {document.convertedFrom && (
+              <Link href={`/dashboard/documents/${document.convertedFrom.id}`} className="inline-flex items-center gap-1 hover:text-foreground hover:underline">
+                Created from {document.convertedFrom.refNumber || "an earlier document"} <ArrowUpRight className="size-3" />
+              </Link>
+            )}
+          </div>
+        )}
 
         <div className="flex-1 overflow-y-auto p-4 space-y-6">
           <div className="space-y-4">
@@ -183,7 +230,7 @@ export default function InvoiceEditor({
                 <Input type="date" value={issueDate} onChange={(e) => setIssueDate(e.target.value)} disabled={!isDraft} />
               </div>
               <div className="space-y-2">
-                <Label>Due Date</Label>
+                <Label>{kind.dateLabel}</Label>
                 <Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} disabled={!isDraft} />
               </div>
             </div>
@@ -319,7 +366,7 @@ export default function InvoiceEditor({
             </>
           )}
 
-          {!isDraft && document.status !== "VOID" && (
+          {!isDraft && document.status !== "VOID" && kind.tracksPayments && (
             <>
               <Separator />
               <div className="space-y-2">
@@ -351,6 +398,7 @@ export default function InvoiceEditor({
         <div className="flex-1 overflow-y-auto p-4 md:p-8 flex justify-center">
           <div className="w-full max-w-[800px] min-h-[1000px] bg-background shadow-xl border overflow-hidden">
             <InvoicePreview
+              type={document.type}
               refNumber={document.refNumber}
               isDraft={isDraft}
               title={title}

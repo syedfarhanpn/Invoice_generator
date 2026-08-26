@@ -7,6 +7,7 @@ import { getViewerFingerprint } from "@/lib/request-info"
 import type { InvoiceContent, ContractContent, SignaturePayload } from "@/lib/types"
 import Link from "next/link"
 import { buttonVariants } from "@/components/ui/button"
+import { documentKind } from "@/lib/document-kinds"
 
 const VIEW_DEDUPE_WINDOW_MS = 60 * 60 * 1000 // 1 hour
 
@@ -47,7 +48,9 @@ export default async function SharedDocumentPage(props: { params: Promise<{ publ
 
   const businessProfile = await prisma.businessProfile.findUnique({ where: { userId: document.userId } })
 
-  const isInvoice = document.type === "INVOICE"
+  // Quotes and proformas render through the invoice preview too - anything
+  // priced with line items does. Only contracts use the clause preview.
+  const isLineItemDoc = documentKind(document.type).isLineItemDoc
   const content = document.content as unknown as InvoiceContent | ContractContent
   const snapshot = content?.snapshot
 
@@ -66,13 +69,14 @@ export default async function SharedDocumentPage(props: { params: Promise<{ publ
               Review &amp; Sign
             </Link>
           )}
-          <DownloadButton documentId={document.id} />
+          <DownloadButton publicSlug={params.publicSlug} />
         </div>
       </div>
 
       <div className="print-area w-full max-w-[800px] min-h-[1000px] bg-background shadow-xl border overflow-hidden">
-        {isInvoice ? (
+        {isLineItemDoc ? (
           <InvoicePreview
+            type={document.type}
             refNumber={document.refNumber}
             isDraft={false}
             title={document.title}

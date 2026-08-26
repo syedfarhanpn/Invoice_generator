@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Download } from "lucide-react"
 import { logDownload } from "../actions"
 
-export default function DownloadButton({ documentId }: { documentId: string }) {
+export default function DownloadButton({ publicSlug }: { publicSlug: string }) {
   const searchParams = useSearchParams()
   const autoPrint = searchParams.get("print") === "1"
 
@@ -18,7 +18,9 @@ export default function DownloadButton({ documentId }: { documentId: string }) {
   }, [autoPrint])
 
   function handleClick() {
-    logDownload(documentId)
+    // Fire and forget: logging is telemetry and must never block or fail the
+    // print dialog the visitor actually asked for.
+    void logDownload(publicSlug).catch(() => {})
     window.print()
   }
 

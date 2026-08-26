@@ -7,6 +7,7 @@ import { LifecycleBadge, PaymentBadge } from "@/components/app/status-badge"
 import { DocumentFilterBar } from "@/components/app/document-filter-bar"
 import { countByFilter, matchesFilter, parseFilter, type FilterableDoc } from "@/lib/document-filters"
 import { formatMoney } from "@/lib/money"
+import { documentKind } from "@/lib/document-kinds"
 
 export default async function DocumentsHistoryPage(props: {
   searchParams: Promise<{ filter?: string }>
@@ -72,7 +73,7 @@ export default async function DocumentsHistoryPage(props: {
                       {doc.refNumber || doc.title || "Untitled draft"}
                     </Link>
                   </td>
-                  <td className="p-4 text-muted-foreground">{doc.type}</td>
+                  <td className="p-4 text-muted-foreground">{documentKind(doc.type).label}</td>
                   <td className="p-4">{doc.client?.businessName || doc.client?.fullName || "No Client"}</td>
                   <td className="p-4">
                     <div className="flex items-center gap-1.5 flex-wrap">

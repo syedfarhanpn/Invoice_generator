@@ -1,11 +1,15 @@
-import type { BusinessProfile, Client, Document, DocumentActivity, Payment } from "@prisma/client"
+import type { BusinessProfile, Client, Document, DocumentActivity, DocumentType, Payment } from "@prisma/client"
 import InvoiceEditor from "./invoice-editor"
 import ContractEditor from "./contract-editor"
+
+export type ConversionLink = { id: string; refNumber: string | null }
 
 type DocumentWithRelations = Document & {
   client: Client | null
   payments: Payment[]
   activity: DocumentActivity[]
+  convertedTo: ConversionLink[]
+  convertedFrom: (ConversionLink & { type: DocumentType }) | null
 }
 
 export default function DocumentEditor({
@@ -30,6 +34,7 @@ export default function DocumentEditor({
     return <ContractEditor document={document} businessProfile={businessProfile} clients={clients} />
   }
 
-  // INVOICE (QUOTE has no editor yet - documents/new excludes it from the UI)
+  // INVOICE / PROFORMA / QUOTE all price the same way, so they share one
+  // editor and read their labels from src/lib/document-kinds.ts.
   return <InvoiceEditor document={document} businessProfile={businessProfile} clients={clients} payments={payments} />
 }

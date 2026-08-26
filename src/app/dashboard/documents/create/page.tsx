@@ -3,8 +3,9 @@ import prisma from "@/lib/db"
 import { DocumentType, Prisma } from "@prisma/client"
 import { getCurrentUser } from "@/lib/current-user"
 import type { InvoiceContent, ContractContent } from "@/lib/types"
+import { CREATABLE_TYPES, documentKind } from "@/lib/document-kinds"
 
-const ALLOWED_TYPES: DocumentType[] = ["INVOICE", "CONTRACT"]
+const ALLOWED_TYPES: readonly DocumentType[] = CREATABLE_TYPES
 
 export default async function CreateDocumentAction(props: {
   searchParams: Promise<{ type?: string; client?: string }>
@@ -26,8 +27,10 @@ export default async function CreateDocumentAction(props: {
 
   const currency = client?.defaultCurrency || businessProfile?.currency || "USD"
 
+  const kind = documentKind(type)
+
   let initialContent: InvoiceContent | ContractContent
-  if (type === "INVOICE") {
+  if (kind.isLineItemDoc) {
     initialContent = {
       lineItems: [{ description: "", qty: 1, rate: 0 }],
       notes: "",
@@ -51,7 +54,7 @@ export default async function CreateDocumentAction(props: {
       clientId: client?.id || null,
       type,
       status: "DRAFT",
-      title: type === "INVOICE" ? "New Invoice" : "New Contract",
+      title: `New ${kind.label}`,
       currency,
       taxMode: businessProfile?.defaultTaxMode ?? "NONE",
       taxRate: businessProfile?.defaultTaxRate ?? null,

@@ -6,7 +6,7 @@ export default function Loading() {
     <div className="space-y-6">
       <PageHeaderSkeleton />
       <div className="flex flex-wrap items-center gap-2">
-        {[64, 80, 88, 104, 72, 88].map((w, i) => (
+        {[64, 80, 104, 100, 88, 104, 72, 88].map((w, i) => (
           <Skeleton key={i} className="h-8 rounded-full" style={{ width: w }} />
         ))}
       </div>

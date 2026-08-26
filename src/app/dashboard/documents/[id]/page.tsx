@@ -16,6 +16,10 @@ export default async function DocumentPage(props: { params: Promise<{ id: string
         client: true,
         payments: { orderBy: { paidOn: "desc" } },
         activity: { orderBy: { createdAt: "desc" } },
+        // Conversion lineage, so the editor can link a quote to the invoice
+        // it became (and back again) instead of just erroring on a re-convert.
+        convertedTo: { select: { id: true, refNumber: true } },
+        convertedFrom: { select: { id: true, refNumber: true, type: true } },
       },
     }),
     prisma.businessProfile.findUnique({

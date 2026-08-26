@@ -72,6 +72,9 @@ export default function SignForm({ publicSlug }: { publicSlug: string }) {
       } else {
         if (!hasDrawn.current) throw new Error("Draw your signature first.")
         const dataUrl = canvasRef.current?.toDataURL("image/png")
+        // The canvas ref can be null on an unmounted form - without this the
+        // action would be called with method "drawn" and no signature at all.
+        if (!dataUrl) throw new Error("Could not read your signature - try again.")
         await signContract(publicSlug, { method: "drawn", drawnDataUrl: dataUrl })
       }
       router.push(`/share/${publicSlug}`)

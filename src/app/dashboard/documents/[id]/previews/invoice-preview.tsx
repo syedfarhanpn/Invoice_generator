@@ -1,8 +1,9 @@
 "use client"
 
 import { Separator } from "@/components/ui/separator"
-import type { BusinessProfile, Client } from "@prisma/client"
+import type { DocumentType } from "@prisma/client"
 import type { InvoiceContent, InvoiceLineItem } from "@/lib/types"
+import { documentKind } from "@/lib/document-kinds"
 import { computeTotals, formatMoney, lineAmount } from "@/lib/money"
 
 type PreviewIssuer = {
@@ -29,6 +30,8 @@ type PreviewClient = {
 }
 
 type InvoicePreviewProps = {
+  /** Drives the heading, the date label and whether bank details print. */
+  type: DocumentType
   refNumber: string | null
   isDraft: boolean
   title: string | null
@@ -44,6 +47,7 @@ type InvoicePreviewProps = {
 }
 
 export default function InvoicePreview({
+  type,
   refNumber,
   isDraft,
   title,
@@ -57,6 +61,7 @@ export default function InvoicePreview({
   issuer,
   client,
 }: InvoicePreviewProps) {
+  const kind = documentKind(type)
   const lineItems: InvoiceLineItem[] = content?.lineItems || []
   const totals = computeTotals(lineItems, currency, taxMode, taxRate)
 
@@ -87,7 +92,7 @@ export default function InvoicePreview({
               }}
             />
           )}
-          <h1 className="text-5xl font-extrabold tracking-tight uppercase">Invoice</h1>
+          <h1 className="text-5xl font-extrabold tracking-tight uppercase">{kind.heading}</h1>
         </div>
         <div className="z-10 text-right">
           <div className="text-sm font-medium opacity-80 uppercase tracking-widest mb-1">Reference</div>
@@ -133,7 +138,7 @@ export default function InvoicePreview({
             <div className="font-medium">{issueDate ? new Date(issueDate).toLocaleDateString() : "-"}</div>
           </div>
           <div className="space-y-1">
-            <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Due Date</div>
+            <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{kind.dateLabel}</div>
             <div className="font-medium">{dueDate ? new Date(dueDate).toLocaleDateString() : "-"}</div>
           </div>
           <div className="space-y-1">
@@ -190,8 +195,16 @@ export default function InvoicePreview({
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-8 text-sm mt-auto pt-8 border-t border-muted/50">
+        {kind.disclaimer && (
+          <div className="mt-auto rounded-md border border-muted-foreground/20 bg-muted/40 px-4 py-3 text-xs text-muted-foreground">
+            {kind.disclaimer}
+          </div>
+        )}
+
+        <div className={`grid grid-cols-2 gap-8 text-sm pt-8 border-t border-muted/50 ${kind.disclaimer ? "mt-8" : "mt-auto"}`}>
           <div>
+            {kind.showsPaymentDetails && (
+              <>
             <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">Payment Details</div>
             <div className="space-y-1 text-muted-foreground">
               {issuer?.paymentMethod && <div>Method: <span className="font-medium text-foreground">{issuer.paymentMethod}</span></div>}
@@ -200,6 +213,8 @@ export default function InvoicePreview({
               {issuer?.routingSwift && <div>Routing/SWIFT: <span className="font-medium text-foreground">{issuer.routingSwift}</span></div>}
               {issuer?.upiId && <div>UPI: <span className="font-medium text-foreground">{issuer.upiId}</span></div>}
             </div>
+              </>
+            )}
           </div>
           <div>
             <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">Notes</div>

@@ -3,6 +3,7 @@ import { Card } from "@/components/ui/card"
 import prisma from "@/lib/db"
 import { getCurrentUser } from "@/lib/current-user"
 import { LifecycleBadge, PaymentBadge } from "@/components/app/status-badge"
+import { documentKind } from "@/lib/document-kinds"
 
 /**
  * The only data-dependent part of the dashboard. Kept in its own async
@@ -40,7 +41,7 @@ export default async function RecentDocuments() {
                     {doc.refNumber || doc.title || "Untitled draft"}
                   </Link>
                 </td>
-                <td className="p-4 text-muted-foreground">{doc.type}</td>
+                <td className="p-4 text-muted-foreground">{documentKind(doc.type).label}</td>
                 <td className="p-4">{doc.client?.businessName || doc.client?.fullName || "N/A"}</td>
                 <td className="p-4">
                   <div className="flex items-center gap-1.5 flex-wrap">

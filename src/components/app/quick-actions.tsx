@@ -1,8 +1,10 @@
 import Link from "next/link"
+import type { DocumentType } from "@prisma/client"
 import { Card } from "@/components/ui/card"
-import { FileText, FileSignature, UserPlus, Settings, ArrowRight } from "lucide-react"
+import { CREATABLE_TYPES, documentKind } from "@/lib/document-kinds"
+import { FileText, FileClock, Receipt, FileSignature, UserPlus, Settings, ArrowRight } from "lucide-react"
 
-type QuickAction = {
+type Action = {
   href: string
   title: string
   desc: string
@@ -16,21 +18,28 @@ type QuickAction = {
   prefetch?: false
 }
 
-const actions: QuickAction[] = [
-  {
-    href: "/dashboard/documents/create?type=INVOICE",
-    title: "New Invoice",
-    desc: "Bill a client with tax and a shareable link.",
-    icon: FileText,
-    prefetch: false,
-  },
-  {
-    href: "/dashboard/documents/create?type=CONTRACT",
-    title: "New Contract",
-    desc: "Scope and terms with in-browser e-signature.",
-    icon: FileSignature,
-    prefetch: false,
-  },
+const TYPE_ICONS: Record<DocumentType, React.ComponentType<{ className?: string }>> = {
+  INVOICE: FileText,
+  QUOTE: FileClock,
+  PROFORMA: Receipt,
+  CONTRACT: FileSignature,
+}
+
+// Derived from the shared type table, so adding a document type puts it here
+// automatically instead of leaving this list quietly out of date.
+const documentActions: Action[] = CREATABLE_TYPES.map((type) => {
+  const kind = documentKind(type)
+  return {
+    href: `/dashboard/documents/create?type=${type}`,
+    title: `New ${kind.label}`,
+    desc: kind.description,
+    icon: TYPE_ICONS[type],
+    prefetch: false as const,
+  }
+})
+
+const actions: Action[] = [
+  ...documentActions,
   {
     href: "/dashboard/clients/new",
     title: "Add Client",
@@ -47,7 +56,7 @@ const actions: QuickAction[] = [
 
 export function QuickActions() {
   return (
-    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {actions.map(({ href, title, desc, icon: Icon, prefetch }) => (
         <Link key={href} href={href} prefetch={prefetch} className="group/action rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring">
           <Card className="h-full justify-between transition-colors hover:bg-muted/50 hover:ring-foreground/20">

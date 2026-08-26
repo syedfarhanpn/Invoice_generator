@@ -121,8 +121,12 @@ model Client {
   // Per-client serial counters. Incremented transactionally in
   // src/lib/allocate-ref.ts when a document is finalized - never on create,
   // so deleting a draft never leaves a gap in issued numbers.
+  // Each type counts separately so converting a quote into an invoice never
+  // burns an invoice number, and INV- stays gapless on its own.
   invoiceSeq  Int @default(0)
   contractSeq Int @default(0)
+  quoteSeq    Int @default(0)
+  proformaSeq Int @default(0)
 
   documents Document[]
   createdAt DateTime   @default(now())
@@ -130,12 +134,14 @@ model Client {
 
   @@unique([userId, code])
   @@index([userId, archivedAt])
+  @@index([userId, createdAt])
 }
 
 enum DocumentType {
   INVOICE
   CONTRACT
-  QUOTE // scaffolded for phase 2 (quote -> invoice conversion); no editor yet
+  QUOTE    // quotation / estimate - converts to an INVOICE once accepted
+  PROFORMA // proforma invoice - converts to an INVOICE once confirmed
 }
 
 // Lifecycle only - money status (paid/partial/overdue) is derived from
@@ -196,6 +202,13 @@ model Document {
   contentHash   String? // sha256 of `content` at finalize/sign time, so a
 
   // later edit can never be passed off as what was actually signed
+  // Set on the INVOICE created from an accepted QUOTE/PROFORMA. The source
+  // document keeps its own number and is never mutated - conversion copies
+  // forward, so both sides stay independently auditable.
+  convertedFromId String?
+  convertedFrom   Document?  @relation("DocumentConversion", fields: [convertedFromId], references: [id], onDelete: SetNull)
+  convertedTo     Document[] @relation("DocumentConversion")
+
   payments Payment[]
   activity DocumentActivity[]
 
@@ -205,6 +218,10 @@ model Document {
   @@unique([userId, refNumber])
   @@index([userId, type])
   @@index([userId, status])
+  // Covers the list pages: WHERE userId = ? ORDER BY createdAt DESC. Without
+  // it Postgres can filter or sort from an index, but not both.
+  @@index([userId, createdAt])
+  @@index([convertedFromId])
   @@index([clientId])
 }
 
