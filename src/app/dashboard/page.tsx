@@ -2,13 +2,15 @@ import { Suspense } from "react"
 import Link from "next/link"
 import { buttonVariants } from "@/components/ui/button"
 import { QuickActions } from "@/components/app/quick-actions"
-import { TableSkeleton } from "@/components/app/skeletons"
+import { StatsSkeleton, TableSkeleton } from "@/components/app/skeletons"
+import InvoiceStats from "./invoice-stats"
 import RecentDocuments from "./recent-documents"
 
 /**
- * Deliberately NOT async: everything above the fold (title, quick actions) is
- * static, so it ships in the first chunk and the nav feels instant. Only the
- * recent-documents table touches the database, behind its own boundary.
+ * Deliberately NOT async: the title and quick actions are static, so they
+ * ship in the first chunk and navigation feels instant. The two
+ * database-backed sections stream in behind their own boundaries and do not
+ * block each other.
  */
 export default function DashboardPage() {
   return (
@@ -19,6 +21,10 @@ export default function DashboardPage() {
           Create Document
         </Link>
       </div>
+
+      <Suspense fallback={<StatsSkeleton />}>
+        <InvoiceStats />
+      </Suspense>
 
       <QuickActions />
 

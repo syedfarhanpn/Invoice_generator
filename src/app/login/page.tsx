@@ -1,8 +1,8 @@
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { login } from "./actions";
+import { SubmitButton } from "./submit-button";
 
 // Single-admin app: no signup form here, and none should be added. See
 // src/app/login/actions.ts and src/lib/current-user.ts for the enforcement.
@@ -20,7 +20,7 @@ export default async function LoginPage(props: {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <form className="space-y-4">
+          <form action={login} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
               <Input id="email" name="email" type="email" placeholder="you@example.com" required />
@@ -33,9 +33,7 @@ export default async function LoginPage(props: {
               <p className="text-sm text-destructive">{searchParams.error}</p>
             )}
             <div className="flex flex-col gap-2 pt-2">
-              <Button type="submit" formAction={login} className="w-full">
-                Sign In
-              </Button>
+              <SubmitButton />
             </div>
           </form>
         </CardContent>

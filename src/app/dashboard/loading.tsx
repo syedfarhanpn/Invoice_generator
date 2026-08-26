@@ -1,6 +1,6 @@
 import { Card } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
-import { TableSkeleton } from "@/components/app/skeletons"
+import { StatsSkeleton, TableSkeleton } from "@/components/app/skeletons"
 
 export default function Loading() {
   return (
@@ -9,6 +9,7 @@ export default function Loading() {
         <Skeleton className="h-9 w-44" />
         <Skeleton className="h-9 w-36 rounded-md" />
       </div>
+      <StatsSkeleton />
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         {Array.from({ length: 4 }).map((_, i) => (
           <Card key={i} className="h-full justify-between">

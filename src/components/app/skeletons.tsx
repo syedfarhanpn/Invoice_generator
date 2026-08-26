@@ -70,3 +70,23 @@ export function FormSkeleton({ fields = 6 }: { fields?: number }) {
     </Card>
   )
 }
+
+/** Stands in for a row of stat cards (label, value, hint). */
+export function StatsSkeleton({ cards = 4 }: { cards?: number }) {
+  return (
+    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      {Array.from({ length: cards }).map((_, i) => (
+        <Card key={i}>
+          <div className="flex items-center justify-between px-(--card-spacing)">
+            <Skeleton className="h-4 w-24" />
+            <Skeleton className="size-4 rounded-full" />
+          </div>
+          <div className="space-y-2 px-(--card-spacing)">
+            <Skeleton className="h-7 w-28" />
+            <Skeleton className="h-3 w-20" />
+          </div>
+        </Card>
+      ))}
+    </div>
+  )
+}
