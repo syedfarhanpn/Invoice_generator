@@ -11,6 +11,16 @@ datasource db {
 
 // Single-admin app: exactly one User row should ever exist (see
 // src/lib/current-user.ts). clientSeq backs Client.clientNumber allocation.
+enum Role {
+  USER // a tenant: owns their own clients, documents and business profile
+  SUPER_ADMIN // operator of the product: manages accounts, never reads tenant documents
+}
+
+enum AccountStatus {
+  ACTIVE
+  SUSPENDED // can authenticate with Supabase, but is refused at getCurrentUser()
+}
+
 model User {
   id            String    @id @default(cuid())
   email         String    @unique
@@ -25,7 +35,47 @@ model User {
   clients         Client[]
   documents       Document[]
   clientSeq       Int       @default(0) // next Client.clientNumber to hand out
-  createdAt       DateTime  @default(now())
+
+  // Access control. Authentication is Supabase's job; authorization is ours,
+  // and it lives here rather than in an env var so accounts can be managed at
+  // runtime. SUPER_ADMIN_EMAIL survives only as the bootstrap/break-glass
+  // path - see src/lib/current-user.ts.
+  role        Role          @default(USER)
+  status      AccountStatus @default(ACTIVE)
+  suspendedAt DateTime?
+  lastLoginAt DateTime?
+
+  apiKeys        ApiKey[]
+  idempotency    IdempotencyRecord[]
+  auditActions AdminAuditLog[] @relation("AdminAuditActor")
+  auditTargets AdminAuditLog[] @relation("AdminAuditTarget")
+
+  createdAt DateTime @default(now())
+
+  @@index([role])
+  @@index([status])
+}
+
+/// Append-only record of every account action a super admin takes. Nothing
+/// deletes from here - if an account was suspended or promoted, that fact must
+/// remain provable after the fact.
+model AdminAuditLog {
+  id      String @id @default(cuid())
+  actorId String
+  actor   User   @relation("AdminAuditActor", fields: [actorId], references: [id], onDelete: Cascade)
+
+  // Null for actions that are not about one specific account.
+  targetUserId String?
+  target       User?   @relation("AdminAuditTarget", fields: [targetUserId], references: [id], onDelete: SetNull)
+
+  action String // "user.provisioned" | "user.suspended" | "user.restored" | "user.role_changed"
+  meta   Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([actorId, createdAt])
+  @@index([targetUserId, createdAt])
 }
 
 model Account {
@@ -116,6 +166,13 @@ model Client {
   notes           String?
   tags            String[]   // e.g. ["active", "video", "high-value"]
   defaultCurrency String?    // overrides BusinessProfile.currency for this client
+
+  // Identity in the system that pushed this record (CRM, etc). Nullable, and
+  // Postgres allows many NULLs under a unique index, so hand-created clients
+  // are unaffected. This is what makes a re-sync an update instead of a
+  // duplicate.
+  externalId   String?
+  sourceSystem String?
   archivedAt      DateTime?
 
   // Per-client serial counters. Incremented transactionally in
@@ -133,6 +190,7 @@ model Client {
   updatedAt DateTime   @updatedAt
 
   @@unique([userId, code])
+  @@unique([userId, externalId])
   @@index([userId, archivedAt])
   @@index([userId, createdAt])
 }
@@ -205,6 +263,9 @@ model Document {
   // Set on the INVOICE created from an accepted QUOTE/PROFORMA. The source
   // document keeps its own number and is never mutated - conversion copies
   // forward, so both sides stay independently auditable.
+  externalId   String?
+  sourceSystem String?
+
   convertedFromId String?
   convertedFrom   Document?  @relation("DocumentConversion", fields: [convertedFromId], references: [id], onDelete: SetNull)
   convertedTo     Document[] @relation("DocumentConversion")
@@ -216,6 +277,7 @@ model Document {
   updatedAt DateTime @updatedAt
 
   @@unique([userId, refNumber])
+  @@unique([userId, externalId])
   @@index([userId, type])
   @@index([userId, status])
   // Covers the list pages: WHERE userId = ? ORDER BY createdAt DESC. Without
@@ -223,6 +285,50 @@ model Document {
   @@index([userId, createdAt])
   @@index([convertedFromId])
   @@index([clientId])
+}
+
+/// Per-tenant API credential for the public REST surface (src/app/api/v1).
+/// Only a SHA-256 of the secret is stored - the plaintext is shown once at
+/// creation and is unrecoverable afterwards.
+model ApiKey {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name String // human label, e.g. "HubSpot production"
+
+  /// Public, non-secret prefix used to find the row before verifying the
+  /// hash. Indexed so lookup never scans, and safe to display in the UI.
+  lookupId String @unique
+  keyHash  String // sha256 of the full secret
+
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId, revokedAt])
+}
+
+/// Replay protection for unsafe API calls. A retried POST with the same
+/// Idempotency-Key returns the stored response instead of creating a second
+/// client or document.
+model IdempotencyRecord {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  key      String
+  endpoint String
+  /// Hash of the request body, so the same key sent with different content is
+  /// rejected rather than silently returning the wrong stored response.
+  requestHash    String
+  responseStatus Int
+  responseBody   Json
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, key])
+  @@index([createdAt])
 }
 
 model Payment {

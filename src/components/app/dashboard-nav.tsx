@@ -11,7 +11,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { LayoutDashboard, FileText, Users, Settings, Menu } from "lucide-react"
+import { LayoutDashboard, FileText, Users, Settings, Menu, ShieldCheck } from "lucide-react"
 
 type NavItem = NavMatch & {
   /** Where the link goes - not always the same as `match` (Settings links
@@ -21,15 +21,25 @@ type NavItem = NavMatch & {
   icon: React.ComponentType<{ className?: string }>
 }
 
-const NAV_ITEMS: NavItem[] = [
+const BASE_ITEMS: NavItem[] = [
   { href: "/dashboard", match: "/dashboard", exact: true, label: "Dashboard", icon: LayoutDashboard },
   { href: "/dashboard/documents", match: "/dashboard/documents", label: "Documents", icon: FileText },
   { href: "/dashboard/clients", match: "/dashboard/clients", label: "Clients", icon: Users },
   { href: "/dashboard/settings/business", match: "/dashboard/settings", label: "Settings", icon: Settings },
 ]
 
-export function DashboardNav() {
+/** Operator-only. Hiding it is cosmetic - the route itself is guarded by
+ *  requireSuperAdmin(), which is what actually enforces access. */
+const ADMIN_ITEM: NavItem = {
+  href: "/dashboard/admin",
+  match: "/dashboard/admin",
+  label: "Accounts",
+  icon: ShieldCheck,
+}
+
+export function DashboardNav({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) {
   const pathname = usePathname()
+  const NAV_ITEMS = isSuperAdmin ? [...BASE_ITEMS, ADMIN_ITEM] : BASE_ITEMS
 
   return (
     <>

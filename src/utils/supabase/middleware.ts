@@ -37,28 +37,24 @@ export const updateSession = async (request: NextRequest) => {
   // it's what keeps Supabase's auth cookies valid across requests.
   const { data: { user } } = await supabase.auth.getUser()
 
-  // This app is single-admin: only SUPER_ADMIN_EMAIL may hold a session.
-  // getCurrentUser() (src/lib/current-user.ts) enforces this too and is the
-  // layer that actually blocks data access, but checking it here as well -
-  // a plain env-var comparison, no DB needed - avoids bouncing a rejected
-  // session through /dashboard before it gets sent back to /login.
-  // Normalized on both sides for the same reason as getCurrentUser(): Supabase
-  // treats emails case-insensitively, so a raw === would bounce a valid admin.
-  const adminEmail = process.env.SUPER_ADMIN_EMAIL?.toLowerCase().trim()
-  const isAdmin =
-    !!adminEmail && user?.email?.toLowerCase().trim() === adminEmail
+  // Authentication only. Whether this account may actually use the product
+  // (role, suspension, provisioning) is decided in src/lib/current-user.ts,
+  // which needs a database read and runs on every page and server action.
+  // Keeping the two layers separate means middleware stays cheap and there is
+  // still a second, independent check before any data query.
+  const isAuthenticated = !!user
 
   const pathname = request.nextUrl.pathname
   const isDashboardRoute = pathname.startsWith("/dashboard")
   const isLoginRoute = pathname === "/login"
 
-  if (!isAdmin && isDashboardRoute) {
+  if (!isAuthenticated && isDashboardRoute) {
     const url = request.nextUrl.clone()
     url.pathname = "/login"
     return NextResponse.redirect(url)
   }
 
-  if (isAdmin && isLoginRoute) {
+  if (isAuthenticated && isLoginRoute) {
     const url = request.nextUrl.clone()
     url.pathname = "/dashboard"
     return NextResponse.redirect(url)

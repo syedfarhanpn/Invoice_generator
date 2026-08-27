@@ -4,13 +4,16 @@ import { redirect } from 'next/navigation'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 
-// Signup is intentionally not implemented anywhere in this app. This is a
-// single-admin tool: only the account matching SUPER_ADMIN_EMAIL (checked in
-// src/lib/current-user.ts) is ever allowed past the dashboard, and that
-// account must already exist in Supabase (create it once from the Supabase
-// dashboard, not from this app). Do not add a signup action back here -
-// without it, there is no code path in this app that can create a new
-// Supabase user, which is the point.
+import { emailSchema } from '@/lib/password'
+
+// There is deliberately no signup action here. Accounts are provisioned by a
+// super admin (see /dashboard/admin), and the corresponding Supabase user is
+// created from the Supabase dashboard. Keeping account creation out of this
+// file means no code path in the app can mint a Supabase user, so "Allow new
+// users to sign up" in Supabase stays the single switch that controls it.
+//
+// If you later open self-service signup, turn that Supabase setting on AND
+// set ALLOW_SELF_SIGNUP=true - both are required, on purpose.
 
 function getSupabaseServerClient(cookieStore: Awaited<ReturnType<typeof cookies>>) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -52,16 +55,46 @@ export async function login(formData: FormData) {
     return redirect('/login?error=Could not authenticate user')
   }
 
-  // Reject here too, not just in getCurrentUser(), so a non-admin sees the
-  // right error immediately instead of bouncing through /dashboard first.
-  const adminEmail = process.env.SUPER_ADMIN_EMAIL?.toLowerCase().trim()
-  const signedInEmail = email.toLowerCase().trim()
-  if (!adminEmail || signedInEmail !== adminEmail) {
-    await supabase.auth.signOut()
-    return redirect('/login?error=This account is not authorized')
-  }
+  // Whether this account is provisioned, suspended, or a super admin is
+  // decided in src/lib/current-user.ts on the first authenticated render. It
+  // signs the session out and redirects back here with a reason, so there is
+  // no second copy of that policy to keep in sync.
 
   redirect('/dashboard')
+}
+
+/**
+ * Sends a password-reset email.
+ *
+ * Always reports success, whatever happened. Telling the visitor "no such
+ * account" would turn this form into an oracle for discovering which
+ * addresses are registered - so the only honest thing we can say is "if that
+ * address has an account, a link is on its way".
+ *
+ * Supabase applies its own per-address and per-IP email rate limits, which is
+ * what stops this being an outbound spam relay.
+ */
+export async function requestPasswordReset(formData: FormData) {
+  const parsed = emailSchema.safeParse(formData.get("email"))
+  if (!parsed.success) {
+    redirect("/login/forgot?error=" + encodeURIComponent("Enter a valid email address."))
+  }
+
+  const cookieStore = await cookies()
+  const supabase = getSupabaseServerClient(cookieStore)
+
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/+$/, "")
+  if (!siteUrl) {
+    // Fail loudly in the server log: without this the email would link to
+    // localhost and silently strand every real user.
+    console.error("NEXT_PUBLIC_SITE_URL is not set - password reset links will be wrong.")
+  }
+
+  await supabase.auth.resetPasswordForEmail(parsed.data, {
+    redirectTo: `${siteUrl ?? ""}/auth/confirm`,
+  })
+
+  redirect("/login/forgot?sent=1")
 }
 
 export async function logout() {

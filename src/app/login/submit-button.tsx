@@ -12,18 +12,24 @@ import { Spinner } from "@/components/ui/spinner"
  * `login` redirects on both success and failure, so pending stays true from
  * the click until the next route paints; there is no state to reset here.
  */
-export function SubmitButton() {
+export function SubmitButton({
+  idleLabel = "Sign In",
+  pendingLabel = "Signing in...",
+}: {
+  idleLabel?: string
+  pendingLabel?: string
+} = {}) {
   const { pending } = useFormStatus()
 
   return (
     <Button type="submit" className="w-full" disabled={pending} aria-busy={pending}>
       {pending ? (
         <>
-          <Spinner label="Signing in" className="mr-2" />
-          Signing in...
+          <Spinner label={pendingLabel} className="mr-2" />
+          {pendingLabel}
         </>
       ) : (
-        "Sign In"
+        idleLabel
       )}
     </Button>
   )
