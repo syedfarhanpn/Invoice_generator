@@ -124,6 +124,51 @@ describe("paymentSummary", () => {
     expect(paymentSummary(1000, 0, null, false, "INR").isOverdue).toBe(false)
   })
 
+  it("deducts an advance from the balance due", () => {
+    // 1000 invoice, 300 already in hand, nothing paid against this invoice
+    const s = paymentSummary(1000, 0, future, false, "INR", 300)
+    expect(s.balance).toBe(700)
+    expect(s.advanceMinor).toBe(30000)
+    expect(s.label).toBe("Partial")
+  })
+
+  it("adds the advance to the payment ledger rather than replacing it", () => {
+    // 300 advance + 200 recorded payment = 500 received against a 1000 invoice
+    const s = paymentSummary(1000, 200, future, false, "INR", 300)
+    expect(s.paidMinor).toBe(50000)
+    expect(s.balance).toBe(500)
+  })
+
+  it("marks an invoice Paid when the advance alone settles it", () => {
+    const s = paymentSummary(1000, 0, future, false, "INR", 1000)
+    expect(s.label).toBe("Paid")
+    expect(s.balance).toBe(0)
+  })
+
+  it("is not overdue when an advance already covers the balance", () => {
+    // Past due, but nothing is actually owed - chasing this would be wrong.
+    expect(paymentSummary(1000, 0, past, false, "INR", 1000).isOverdue).toBe(false)
+  })
+
+  it("never lets an advance push the balance negative", () => {
+    const s = paymentSummary(1000, 0, future, false, "INR", 5000)
+    expect(s.balanceMinor).toBe(0)
+  })
+
+  it("ignores a negative advance instead of inflating the balance", () => {
+    // A crafted payload must not be able to make an invoice bill MORE.
+    const s = paymentSummary(1000, 0, future, false, "INR", -500)
+    expect(s.balance).toBe(1000)
+    expect(s.advanceMinor).toBe(0)
+  })
+
+  it("behaves exactly as before when no advance is given", () => {
+    const withOut = paymentSummary(1000, 400, future, false, "INR")
+    const withZero = paymentSummary(1000, 400, future, false, "INR", 0)
+    expect(withOut).toEqual(withZero)
+    expect(withOut.balance).toBe(600)
+  })
+
   it("treats a null total as zero rather than NaN", () => {
     const s = paymentSummary(null, 0, future, false, "INR")
     expect(s.totalMinor).toBe(0)

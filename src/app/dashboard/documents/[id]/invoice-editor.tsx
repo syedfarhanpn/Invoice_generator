@@ -66,6 +66,11 @@ export default function InvoiceEditor({
     initialContent.lineItems?.length ? initialContent.lineItems : [{ description: "", qty: 1, rate: 0 }]
   )
   const [notes, setNotes] = useState(initialContent.notes || "")
+  const [advanceReceived, setAdvanceReceived] = useState(
+    document.advanceReceived != null && Number(document.advanceReceived) > 0
+      ? String(Number(document.advanceReceived))
+      : ""
+  )
 
   const [isSaving, setIsSaving] = useState(false)
   const [isFinalizing, setIsFinalizing] = useState(false)
@@ -73,6 +78,9 @@ export default function InvoiceEditor({
   const [error, setError] = useState<string | null>(null)
 
   const selectedClient = clients.find((c) => c.id === clientId) || document.client || undefined
+
+  const advanceAmount = kind.supportsAdvance ? Math.max(0, parseFloat(advanceReceived) || 0) : 0
+  const advanceMinor = Math.round(advanceAmount * 100)
 
   const totals = useMemo(
     () => computeTotals(lineItems, currency, taxMode, taxMode === "PERCENTAGE" ? parseFloat(taxRate) || 0 : 0),
@@ -103,6 +111,7 @@ export default function InvoiceEditor({
         taxRate: taxMode === "PERCENTAGE" ? parseFloat(taxRate) || 0 : null,
         taxLabel: taxMode === "PERCENTAGE" ? taxLabel : null,
         content: { lineItems, notes },
+        advanceReceived: kind.supportsAdvance ? parseFloat(advanceReceived) || 0 : 0,
       })
       router.refresh()
     } catch (err) {
@@ -279,6 +288,36 @@ export default function InvoiceEditor({
             )}
           </div>
 
+          {kind.supportsAdvance && (
+            <>
+              <Separator />
+              <div className="space-y-4">
+                <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+                  Amount Already Received
+                </h3>
+                <div className="space-y-2">
+                  <Label>Advance / earlier milestone</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    inputMode="decimal"
+                    value={advanceReceived}
+                    onChange={(e) => setAdvanceReceived(e.target.value)}
+                    disabled={!isDraft}
+                    placeholder="0.00"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Deducted from the total on the document to show a balance due. Leave
+                    empty if the full amount is payable. This is money received{" "}
+                    <em>before</em> this invoice - payments against this invoice itself go
+                    in the Payments section after finalizing.
+                  </p>
+                </div>
+              </div>
+            </>
+          )}
+
           <Separator />
 
           <div className="space-y-4">
@@ -347,7 +386,21 @@ export default function InvoiceEditor({
               {taxMode === "PERCENTAGE" && (
                 <div className="text-muted-foreground">{taxLabel}: {formatMoney(totals.taxAmount, currency)}</div>
               )}
-              <div className="font-semibold text-base">Total: {formatMoney(totals.total, currency)}</div>
+              {(advanceMinor === 0 || totals.total !== totals.subtotal) && (
+                <div className={advanceMinor > 0 ? "text-muted-foreground" : "font-semibold text-base"}>
+                  Total: {formatMoney(totals.total, currency)}
+                </div>
+              )}
+              {advanceMinor > 0 && (
+                <>
+                  <div className="text-muted-foreground">
+                    Less received: -{formatMoney(advanceAmount, currency)}
+                  </div>
+                  <div className="font-semibold text-base">
+                    Balance due: {formatMoney(Math.max(0, totals.total - advanceAmount), currency)}
+                  </div>
+                </>
+              )}
             </div>
 
             <div className="space-y-2 mt-4">
@@ -396,7 +449,7 @@ export default function InvoiceEditor({
 
       <div className="flex-1 bg-muted/30 flex flex-col h-full overflow-hidden">
         <div className="flex-1 overflow-y-auto p-4 md:p-8 flex justify-center">
-          <div className="w-full max-w-[800px] min-h-[1000px] bg-background shadow-xl border overflow-hidden">
+          <div className="w-full max-w-[800px] self-start bg-background shadow-xl border">
             <InvoicePreview
               type={document.type}
               refNumber={document.refNumber}
@@ -408,6 +461,7 @@ export default function InvoiceEditor({
               taxMode={taxMode}
               taxRate={taxMode === "PERCENTAGE" ? parseFloat(taxRate) || 0 : null}
               taxLabel={taxLabel}
+              advanceReceived={advanceAmount}
               content={{ lineItems, notes }}
               issuer={businessProfile}
               client={selectedClient}

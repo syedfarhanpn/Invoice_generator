@@ -31,6 +31,11 @@ export type DocumentKindConfig = {
   convertsToInvoice: boolean
   /** Whether to print the issuer's bank / UPI details. */
   showsPaymentDetails: boolean
+  /**
+   * Whether an "amount already received" line applies. A quotation is a price
+   * estimate - nothing has been received against it - so it never shows one.
+   */
+  supportsAdvance: boolean
   /** Line-item editor (invoice family) vs clause editor (contracts). */
   isLineItemDoc: boolean
   /** Shown under the totals. Legally load-bearing for proformas. */
@@ -49,6 +54,7 @@ export const DOCUMENT_KINDS: Record<DocumentType, DocumentKindConfig> = {
     tracksPayments: true,
     convertsToInvoice: false,
     showsPaymentDetails: true,
+    supportsAdvance: true,
     isLineItemDoc: true,
     disclaimer: null,
     description: "Bill a client, with tax and a shareable link.",
@@ -64,6 +70,7 @@ export const DOCUMENT_KINDS: Record<DocumentType, DocumentKindConfig> = {
     // details - but it is not a tax invoice and must say so.
     convertsToInvoice: true,
     showsPaymentDetails: true,
+    supportsAdvance: true,
     isLineItemDoc: true,
     disclaimer: "This is a proforma invoice, not a tax invoice. No payment is due against this document alone.",
     description: "Request advance payment or confirm an order before invoicing.",
@@ -77,6 +84,7 @@ export const DOCUMENT_KINDS: Record<DocumentType, DocumentKindConfig> = {
     tracksPayments: false,
     convertsToInvoice: true,
     showsPaymentDetails: false,
+    supportsAdvance: false,
     isLineItemDoc: true,
     disclaimer: "This quotation is an estimate valid until the date shown, and is not a request for payment.",
     description: "Quote a price up front, then convert it once accepted.",
@@ -90,6 +98,7 @@ export const DOCUMENT_KINDS: Record<DocumentType, DocumentKindConfig> = {
     tracksPayments: false,
     convertsToInvoice: false,
     showsPaymentDetails: false,
+    supportsAdvance: false,
     isLineItemDoc: false,
     disclaimer: null,
     description: "Scope and terms, with in-browser e-signature.",

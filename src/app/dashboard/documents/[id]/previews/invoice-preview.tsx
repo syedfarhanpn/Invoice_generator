@@ -41,6 +41,8 @@ type InvoicePreviewProps = {
   taxMode: "NONE" | "PERCENTAGE"
   taxRate: number | null
   taxLabel: string | null
+  /** Money already in hand before this document was raised. */
+  advanceReceived?: number | null
   content: InvoiceContent
   issuer: PreviewIssuer | null
   client: PreviewClient | null | undefined
@@ -57,6 +59,7 @@ export default function InvoicePreview({
   taxMode,
   taxRate,
   taxLabel,
+  advanceReceived,
   content,
   issuer,
   client,
@@ -64,9 +67,30 @@ export default function InvoicePreview({
   const kind = documentKind(type)
   const lineItems: InvoiceLineItem[] = content?.lineItems || []
   const totals = computeTotals(lineItems, currency, taxMode, taxRate)
+  // Only shown when there is actually something to deduct, so an ordinary
+  // one-off invoice looks exactly as it did before this feature existed.
+  const advance = kind.supportsAdvance ? Math.max(0, Number(advanceReceived) || 0) : 0
+  const showAdvance = advance > 0
+  const balanceDue = Math.max(0, totals.total - advance)
+  // Once an advance is deducted the document ends on Balance Due, so a Total
+  // row that merely repeats the Subtotal is noise - drop it. It is kept when
+  // tax makes the two differ, because a tax invoice still has to state its
+  // full invoice value.
+  const showTotalRow = !showAdvance || totals.total !== totals.subtotal
+  // Only render the payment block if the issuer actually configured something -
+  // otherwise the document shows a heading above empty space.
+  const paymentLines = kind.showsPaymentDetails
+    ? ([
+        ["Method", issuer?.paymentMethod],
+        ["Bank", issuer?.bankName],
+        ["Account", issuer?.accountNumber],
+        ["Routing/SWIFT", issuer?.routingSwift],
+        ["UPI", issuer?.upiId],
+      ] as const).filter(([, v]) => !!v)
+    : []
 
   return (
-    <div className="w-full h-full bg-background text-foreground flex flex-col font-sans relative">
+    <div className="w-full min-h-[1000px] print:min-h-0 bg-background text-foreground flex flex-col font-sans relative">
       {isDraft && (
         <div className="absolute inset-0 pointer-events-none flex items-center justify-center z-20 overflow-hidden">
           <span className="text-[10rem] font-black text-muted-foreground/10 -rotate-12 select-none whitespace-nowrap">
@@ -75,8 +99,11 @@ export default function InvoicePreview({
         </div>
       )}
 
+      {/* Sticky on screen so the reference number stays visible as line items
+          push the document taller. print:static because a sticky element in a
+          paged context repeats or floats out of place. */}
       <div
-        className="h-32 w-full flex items-end justify-between px-12 pb-8 text-white relative overflow-hidden"
+        className="sticky top-0 z-30 h-32 w-full flex items-end justify-between px-12 pb-8 text-white relative overflow-hidden print:static"
         style={{ backgroundColor: issuer?.brandColor || "#000" }}
       >
         <div className="absolute inset-0 opacity-20 bg-gradient-to-r from-transparent to-white/40 mix-blend-overlay"></div>
@@ -100,7 +127,7 @@ export default function InvoicePreview({
         </div>
       </div>
 
-      <div className="px-12 py-12 flex-1 flex flex-col">
+      <div className="px-12 pt-12 flex-1 flex flex-col">
         <div className="flex justify-between items-start mb-16 gap-8">
           <div className="space-y-4 max-w-xs">
             <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">From</div>
@@ -186,39 +213,81 @@ export default function InvoicePreview({
                   <span className="font-medium">{formatMoney(totals.taxAmount, currency)}</span>
                 </div>
               )}
-              <Separator />
-              <div className="flex justify-between items-center">
-                <span className="font-bold text-lg uppercase tracking-wider">Total</span>
-                <span className="font-extrabold text-2xl">{formatMoney(totals.total, currency)}</span>
-              </div>
+              {/* Tax applies to the full invoice value, so the advance is
+                  deducted AFTER the total, never before the tax line. */}
+              {showTotalRow && (
+                <>
+                  <Separator />
+                  <div className="flex justify-between items-center">
+                    <span className={showAdvance ? "font-semibold text-base uppercase tracking-wider" : "font-bold text-lg uppercase tracking-wider"}>
+                      Total
+                    </span>
+                    <span className={showAdvance ? "font-bold text-lg" : "font-extrabold text-2xl"}>
+                      {formatMoney(totals.total, currency)}
+                    </span>
+                  </div>
+                </>
+              )}
+              {showAdvance && (
+                <>
+                  {!showTotalRow && <Separator />}
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Less: amount received</span>
+                    <span className="font-medium">-{formatMoney(advance, currency)}</span>
+                  </div>
+                  <Separator />
+                  <div className="flex justify-between items-center">
+                    <span className="font-bold text-lg uppercase tracking-wider">Balance Due</span>
+                    <span className="font-extrabold text-2xl">{formatMoney(balanceDue, currency)}</span>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </div>
 
-        {kind.disclaimer && (
-          <div className="mt-auto rounded-md border border-muted-foreground/20 bg-muted/40 px-4 py-3 text-xs text-muted-foreground">
-            {kind.disclaimer}
-          </div>
-        )}
-
-        <div className={`grid grid-cols-2 gap-8 text-sm pt-8 border-t border-muted/50 ${kind.disclaimer ? "mt-8" : "mt-auto"}`}>
-          <div>
-            {kind.showsPaymentDetails && (
-              <>
-            <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">Payment Details</div>
-            <div className="space-y-1 text-muted-foreground">
-              {issuer?.paymentMethod && <div>Method: <span className="font-medium text-foreground">{issuer.paymentMethod}</span></div>}
-              {issuer?.bankName && <div>Bank: <span className="font-medium text-foreground">{issuer.bankName}</span></div>}
-              {issuer?.accountNumber && <div>Account: <span className="font-medium text-foreground">{issuer.accountNumber}</span></div>}
-              {issuer?.routingSwift && <div>Routing/SWIFT: <span className="font-medium text-foreground">{issuer.routingSwift}</span></div>}
-              {issuer?.upiId && <div>UPI: <span className="font-medium text-foreground">{issuer.upiId}</span></div>}
+        {/* Document footer. mt-auto pins it to the bottom of the page when the
+            document is short; it flows naturally once line items fill the page.
+            The band is full-bleed (-mx-12) so it reads as a footer rather than
+            one more content row. */}
+        <div className="mt-auto pt-12">
+          {kind.disclaimer && (
+            <div className="mb-6 rounded-md border border-muted-foreground/20 bg-muted/40 px-4 py-3 text-xs text-muted-foreground">
+              {kind.disclaimer}
             </div>
-              </>
-            )}
-          </div>
-          <div>
-            <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">Notes</div>
-            <div className="text-muted-foreground whitespace-pre-wrap">{content?.notes || ""}</div>
+          )}
+
+          <div className="-mx-12 border-t border-muted/60 bg-muted/20 px-12 pt-8 pb-10">
+            <div
+              className={`grid gap-x-16 gap-y-8 text-sm ${
+                paymentLines.length > 0 ? "sm:grid-cols-2" : "grid-cols-1"
+              }`}
+            >
+              {paymentLines.length > 0 && (
+                <div>
+                  <div className="mb-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                    Payment Details
+                  </div>
+                  <dl className="space-y-1.5">
+                    {paymentLines.map(([label, value]) => (
+                      <div key={label} className="flex gap-3">
+                        <dt className="w-28 shrink-0 text-muted-foreground">{label}</dt>
+                        <dd className="font-medium break-all">{value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </div>
+              )}
+
+              <div>
+                <div className="mb-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                  Notes
+                </div>
+                <p className="leading-relaxed whitespace-pre-wrap text-muted-foreground">
+                  {content?.notes || <span className="italic opacity-60">No notes</span>}
+                </p>
+              </div>
+            </div>
           </div>
         </div>
       </div>

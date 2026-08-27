@@ -22,7 +22,7 @@ export default async function InvoiceStats() {
         // Drafts were never billed; voids were cancelled after the fact.
         status: { notIn: ["DRAFT", "VOID"] },
       },
-      select: { totalAmount: true, amountPaid: true, dueDate: true, currency: true },
+      select: { totalAmount: true, amountPaid: true, dueDate: true, currency: true, advanceReceived: true },
     }),
   ])
 
@@ -47,7 +47,8 @@ export default async function InvoiceStats() {
       Number(invoice.amountPaid),
       invoice.dueDate,
       false,
-      invoice.currency
+      invoice.currency,
+      Number(invoice.advanceReceived)
     )
     invoicedMinor += summary.totalMinor
     receivedMinor += summary.paidMinor

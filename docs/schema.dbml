@@ -1,0 +1,373 @@
+// Client Kit Studio - database schema
+// Paste into https://dbdiagram.io/d to visualise.
+// Generated from prisma/schema.prisma - keep in sync when the schema changes.
+
+Project client_kit_studio {
+  database_type: 'PostgreSQL'
+  Note: '''
+    Invoicing / document product on Supabase Postgres.
+    Tenancy: every tenant-owned row hangs off User.id.
+    Authentication lives in Supabase's `auth` schema; authorization lives here.
+  '''
+}
+
+// ===========================================================================
+// Enums
+// ===========================================================================
+
+Enum Role {
+  USER          [note: 'A tenant: owns their clients, documents, business profile']
+  SUPER_ADMIN   [note: 'Operator: manages accounts, never reads tenant documents']
+}
+
+Enum AccountStatus {
+  ACTIVE
+  SUSPENDED     [note: 'Can authenticate with Supabase, refused at getCurrentUser()']
+}
+
+Enum DocumentType {
+  INVOICE
+  PROFORMA      [note: 'Converts to an INVOICE once confirmed']
+  QUOTE         [note: 'Converts to an INVOICE once accepted']
+  CONTRACT
+}
+
+Enum DocumentStatus {
+  DRAFT         [note: 'Editable, unnumbered, not shareable']
+  FINALIZED     [note: 'Numbered + snapshotted + shareable']
+  SIGNED        [note: 'Contracts only, after e-signature; permanently locked']
+  VOID          [note: 'Cancelled after finalize; number stays allocated']
+  ARCHIVED
+}
+
+Enum TaxMode {
+  NONE
+  PERCENTAGE
+}
+
+// ===========================================================================
+// Tenancy + access control
+// ===========================================================================
+
+Table User {
+  id            varchar        [primary key]
+  email         varchar        [not null, unique, note: 'Join key to Supabase auth.users']
+  name          varchar
+  passwordHash  varchar        [note: 'DEAD - NextAuth leftover, always NULL. Passwords live in auth.users']
+  emailVerified timestamp
+  image         varchar
+  clientSeq     integer        [not null, default: 0, note: 'Next Client.clientNumber to hand out']
+
+  role          Role           [not null, default: 'USER']
+  status        AccountStatus  [not null, default: 'ACTIVE']
+  suspendedAt   timestamp
+  lastLoginAt   timestamp
+  createdAt     timestamp      [not null]
+
+  indexes {
+    role
+    status
+  }
+  Note: 'One row per tenant. Authorization only - Supabase owns authentication.'
+}
+
+Table AdminAuditLog {
+  id           varchar   [primary key]
+  actorId      varchar   [not null, note: 'The super admin who acted']
+  targetUserId varchar   [note: 'NULL for actions not about one account']
+  action       varchar   [not null, note: 'user.provisioned | user.suspended | user.restored | user.role_changed']
+  meta         jsonb
+  createdAt    timestamp [not null]
+
+  indexes {
+    createdAt
+    (actorId, createdAt)
+    (targetUserId, createdAt)
+  }
+  Note: 'Append-only. Nothing deletes from here.'
+}
+
+// ===========================================================================
+// Business identity
+// ===========================================================================
+
+Table BusinessProfile {
+  id                     varchar   [primary key]
+  userId                 varchar   [not null, unique]
+  businessName           varchar   [not null]
+  ownerName              varchar   [not null]
+  email                  varchar   [not null]
+  phone                  varchar
+  address                varchar
+  website                varchar
+  taxId                  varchar   [note: 'GSTIN or equivalent']
+  logoUrl                varchar
+  brandColor             varchar   [default: '#000000']
+  paymentMethod          varchar
+  bankName               varchar
+  accountNumber          varchar
+  routingSwift           varchar
+  upiId                  varchar   [note: 'UPI VPA, e.g. name@bank']
+  currency               varchar   [default: 'USD']
+  defaultTaxMode         TaxMode   [not null, default: 'NONE']
+  defaultTaxRate         "decimal(5,2)"
+  defaultTaxLabel        varchar
+  defaultPaymentTermDays integer   [default: 15]
+  signatureName          varchar
+  signatureImageUrl      varchar
+  updatedAt              timestamp [not null]
+
+  Note: 'One per tenant. Snapshotted onto documents at finalize time.'
+}
+
+// ===========================================================================
+// Clients
+// ===========================================================================
+
+Table Client {
+  id              varchar     [primary key]
+  userId          varchar     [not null]
+  clientNumber    integer     [not null, note: 'Sequential, from User.clientSeq']
+  code            varchar     [not null, note: 'Short uppercase code embedded in every serial (INV-ACME-001). Locked once a document is finalized']
+  fullName        varchar     [not null]
+  businessName    varchar
+  email           varchar     [not null, note: 'NOT unique - cannot be a dedupe key']
+  phone           varchar
+  address         varchar
+  country         varchar
+  taxId           varchar     [note: 'GSTIN or equivalent']
+  notes           varchar
+  tags            "varchar[]"
+  defaultCurrency varchar     [note: 'Overrides BusinessProfile.currency']
+  externalId      varchar     [note: 'Id in the pushing system (CRM). Makes re-sync an update, not a duplicate']
+  sourceSystem    varchar
+  archivedAt      timestamp
+
+  invoiceSeq      integer     [not null, default: 0]
+  contractSeq     integer     [not null, default: 0]
+  quoteSeq        integer     [not null, default: 0]
+  proformaSeq     integer     [not null, default: 0]
+
+  createdAt       timestamp   [not null]
+  updatedAt       timestamp   [not null]
+
+  indexes {
+    (userId, code) [unique]
+    (userId, externalId) [unique]
+    (userId, archivedAt)
+    (userId, createdAt)
+  }
+  Note: 'Per-type serial counters so each series (INV/PRO/QUO/CON) stays gapless independently.'
+}
+
+// ===========================================================================
+// Documents
+// ===========================================================================
+
+Table Document {
+  id              varchar         [primary key]
+  userId          varchar         [not null]
+  clientId        varchar
+  type            DocumentType    [not null]
+  status          DocumentStatus  [not null, default: 'DRAFT']
+
+  refNumber       varchar         [note: 'NULL while DRAFT; assigned atomically on finalize']
+  sequence        integer
+  title           varchar
+  content         jsonb           [not null, note: 'Line items or contract clauses. Frozen once status leaves DRAFT']
+
+  currency        varchar         [not null, default: 'USD']
+  taxMode         TaxMode         [not null, default: 'NONE']
+  taxRate         "decimal(5,2)"
+  taxLabel        varchar
+
+  subtotal        "decimal(12,2)"
+  taxAmount       "decimal(12,2)"
+  totalAmount     "decimal(12,2)"
+  amountPaid      "decimal(12,2)" [not null, default: 0, note: 'Always recomputed as SUM(Payment.amount), never incremented']
+  advanceReceived "decimal(12,2)" [not null, default: 0, note: 'Money in hand before this invoice was raised']
+
+  issueDate       timestamp
+  dueDate         timestamp       [note: '"Valid until" for QUOTE / PROFORMA']
+  finalizedAt     timestamp
+
+  publicSlug      varchar         [unique, note: '128-bit random share token, not derived from id']
+  slugRevokedAt   timestamp
+  signatureData   jsonb           [note: 'E-signature payload, CONTRACT only']
+  contentHash     varchar         [note: 'sha256 of content at finalize/sign time - tamper evidence']
+
+  externalId      varchar
+  sourceSystem    varchar
+  convertedFromId varchar         [note: 'Set on the INVOICE created from an accepted QUOTE/PROFORMA']
+
+  createdAt       timestamp       [not null]
+  updatedAt       timestamp       [not null]
+
+  indexes {
+    (userId, refNumber) [unique]
+    (userId, externalId) [unique]
+    (userId, type)
+    (userId, status)
+    (userId, createdAt)
+    convertedFromId
+    clientId
+  }
+  Note: 'Money status (paid/partial/overdue) is DERIVED from amountPaid vs totalAmount/dueDate - never stored.'
+}
+
+Table Payment {
+  id         varchar         [primary key]
+  documentId varchar         [not null]
+  amount     "decimal(12,2)" [not null]
+  paidOn     timestamp       [not null]
+  method     varchar         [note: 'UPI | Bank transfer | Cash | ...']
+  reference  varchar
+  note       varchar
+  createdAt  timestamp       [not null]
+
+  indexes {
+    documentId
+  }
+  Note: 'The ledger. Only real invoices carry payments.'
+}
+
+Table DocumentActivity {
+  id         varchar   [primary key]
+  documentId varchar   [not null]
+  event      varchar   [not null, note: 'created | finalized | shared | viewed | downloaded | signed | payment_recorded | voided | converted']
+  meta       jsonb
+  createdAt  timestamp [not null]
+
+  indexes {
+    (documentId, createdAt)
+  }
+}
+
+// ===========================================================================
+// Public REST API (src/app/api/v1)
+// ===========================================================================
+
+Table ApiKey {
+  id         varchar   [primary key]
+  userId     varchar   [not null]
+  name       varchar   [not null, note: 'Human label, e.g. "HubSpot production"']
+  lookupId   varchar   [not null, unique, note: 'Non-secret prefix, used to find the row before verifying']
+  keyHash    varchar   [not null, note: 'sha256 of the secret. Plaintext shown once, unrecoverable after']
+  lastUsedAt timestamp
+  revokedAt  timestamp
+  createdAt  timestamp [not null]
+
+  indexes {
+    (userId, revokedAt)
+  }
+}
+
+Table IdempotencyRecord {
+  id             varchar   [primary key]
+  userId         varchar   [not null]
+  key            varchar   [not null]
+  endpoint       varchar   [not null]
+  requestHash    varchar   [not null, note: 'Same key + different body is rejected, not silently replayed']
+  responseStatus integer   [not null]
+  responseBody   jsonb     [not null]
+  createdAt      timestamp [not null]
+
+  indexes {
+    (userId, key) [unique]
+    createdAt
+  }
+  Note: 'Replay protection: a retried POST returns the stored response.'
+}
+
+// ===========================================================================
+// Supabase-managed (schema: auth) - NOT in prisma/schema.prisma
+// ===========================================================================
+
+Table auth_users {
+  id                 varchar   [primary key]
+  email              varchar   [unique]
+  encrypted_password varchar   [note: 'bcrypt hash ($2a$, 60 chars). One-way - unreadable, including by you']
+  email_confirmed_at timestamp
+  last_sign_in_at    timestamp
+  created_at         timestamp
+
+  Note: '''
+    Lives in the `auth` schema, owned by Supabase. Prisma does not manage it.
+    Joined to User by email. This is where passwords actually are.
+  '''
+}
+
+// ===========================================================================
+// Dead tables - NextAuth leftovers. Nothing reads or writes these.
+// Safe to drop; Account can hold OAuth tokens, so it is a liability.
+// ===========================================================================
+
+Table Account {
+  id                varchar [primary key]
+  userId            varchar [not null]
+  type              varchar [not null]
+  provider          varchar [not null]
+  providerAccountId varchar [not null]
+  refresh_token     text
+  access_token      text
+  expires_at        integer
+  token_type        varchar
+  scope             varchar
+  id_token          text
+  session_state     varchar
+
+  indexes {
+    (provider, providerAccountId) [unique]
+  }
+  Note: 'DEAD - unused. Auth is Supabase.'
+}
+
+Table Session {
+  id           varchar   [primary key]
+  sessionToken varchar   [not null, unique]
+  userId       varchar   [not null]
+  expires      timestamp [not null]
+
+  Note: 'DEAD - unused. Auth is Supabase.'
+}
+
+Table VerificationToken {
+  identifier varchar   [not null]
+  token      varchar   [not null, unique]
+  expires    timestamp [not null]
+
+  indexes {
+    (identifier, token) [unique]
+  }
+  Note: 'DEAD - unused. Auth is Supabase.'
+}
+
+// ===========================================================================
+// Relationships
+// ===========================================================================
+
+// Tenancy: everything hangs off User
+Ref: BusinessProfile.userId - User.id [delete: cascade]
+Ref: Client.userId > User.id [delete: cascade]
+Ref: Document.userId > User.id [delete: cascade]
+Ref: ApiKey.userId > User.id [delete: cascade]
+Ref: IdempotencyRecord.userId > User.id [delete: cascade]
+
+// Documents
+Ref: Document.clientId > Client.id [delete: cascade]
+Ref: Payment.documentId > Document.id [delete: cascade]
+Ref: DocumentActivity.documentId > Document.id [delete: cascade]
+
+// Quote / proforma -> invoice lineage (self-reference)
+Ref: Document.convertedFromId > Document.id [delete: set null]
+
+// Admin audit: two separate paths to User
+Ref: AdminAuditLog.actorId > User.id [delete: cascade]
+Ref: AdminAuditLog.targetUserId > User.id [delete: set null]
+
+// Authentication (cross-schema, by email - no FK exists)
+Ref: User.email - auth_users.email
+
+// Dead tables
+Ref: Account.userId > User.id [delete: cascade]
+Ref: Session.userId > User.id [delete: cascade]

@@ -73,7 +73,7 @@ export default async function SharedDocumentPage(props: { params: Promise<{ publ
         </div>
       </div>
 
-      <div className="print-area w-full max-w-[800px] min-h-[1000px] bg-background shadow-xl border overflow-hidden">
+      <div className="print-area w-full max-w-[800px] bg-background shadow-xl border">
         {isLineItemDoc ? (
           <InvoicePreview
             type={document.type}
@@ -86,6 +86,7 @@ export default async function SharedDocumentPage(props: { params: Promise<{ publ
             taxMode={document.taxMode}
             taxRate={document.taxRate != null ? Number(document.taxRate) : null}
             taxLabel={document.taxLabel}
+            advanceReceived={Number(document.advanceReceived)}
             content={content as InvoiceContent}
             issuer={issuer}
             client={client}

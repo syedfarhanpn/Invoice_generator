@@ -53,6 +53,7 @@ export default async function RecentDocuments() {
                         dueDate={doc.dueDate}
                         isDraft={false}
                         currency={doc.currency}
+                        advanceReceived={Number(doc.advanceReceived)}
                       />
                     )}
                   </div>

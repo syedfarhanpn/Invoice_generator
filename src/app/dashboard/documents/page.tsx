@@ -32,6 +32,7 @@ export default async function DocumentsHistoryPage(props: {
       amountPaid: Number(doc.amountPaid),
       dueDate: doc.dueDate,
       currency: doc.currency,
+      advanceReceived: Number(doc.advanceReceived),
     } satisfies FilterableDoc,
   }))
 
@@ -85,6 +86,7 @@ export default async function DocumentsHistoryPage(props: {
                           dueDate={doc.dueDate}
                           isDraft={false}
                           currency={doc.currency}
+                          advanceReceived={Number(doc.advanceReceived)}
                         />
                       )}
                     </div>

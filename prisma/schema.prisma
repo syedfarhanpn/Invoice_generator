@@ -248,6 +248,13 @@ model Document {
   totalAmount Decimal? @db.Decimal(12, 2)
   amountPaid  Decimal  @default(0) @db.Decimal(12, 2)
 
+  // Money already in hand before this invoice was raised - a prior advance or
+  // an earlier milestone payment. Deducted from the total on the printed
+  // document to give the balance due. Distinct from amountPaid, which is the
+  // Payment ledger for THIS document; both count as received (see
+  // paymentSummary in src/lib/money.ts).
+  advanceReceived Decimal @default(0) @db.Decimal(12, 2)
+
   issueDate DateTime?
   dueDate   DateTime?
 

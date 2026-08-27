@@ -33,6 +33,8 @@ export type UpdateDocumentInput = {
   taxRate?: number | null
   taxLabel?: string | null
   content: InvoiceContent | ContractContent
+  /** Money already in hand before this document - deducted on the printed doc. */
+  advanceReceived?: number
 }
 
 export async function updateDocument(id: string, data: UpdateDocumentInput) {
@@ -75,6 +77,11 @@ export async function updateDocument(id: string, data: UpdateDocumentInput) {
       subtotal,
       taxAmount,
       totalAmount,
+      // Floored at zero and only accepted for types that support it, so a
+      // crafted payload cannot use this to inflate a balance.
+      advanceReceived: documentKind(doc.type).supportsAdvance
+        ? Math.max(0, Number(data.advanceReceived) || 0)
+        : 0,
     },
   })
 

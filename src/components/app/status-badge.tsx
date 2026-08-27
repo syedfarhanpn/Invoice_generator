@@ -34,13 +34,16 @@ export function PaymentBadge({
   dueDate,
   isDraft,
   currency,
+  advanceReceived,
 }: {
   totalAmount: number | null | undefined
   amountPaid: number | null | undefined
   dueDate: Date | null | undefined
   isDraft: boolean
   currency: string
+  /** Prior advance, so the badge agrees with the balance on the document. */
+  advanceReceived?: number | null
 }) {
-  const summary = paymentSummary(totalAmount, amountPaid, dueDate, isDraft, currency)
+  const summary = paymentSummary(totalAmount, amountPaid, dueDate, isDraft, currency, advanceReceived)
   return <Badge variant={PAYMENT_STYLE[summary.label]}>{summary.label}</Badge>
 }

@@ -37,9 +37,19 @@ export function TableSkeleton({ columns = 5, rows = 6 }: { columns?: number; row
           ))}
         </div>
         {Array.from({ length: rows }).map((_, r) => (
-          <div key={r} className="flex gap-4 border-b px-4 py-4 last:border-b-0">
+          <div
+            key={r}
+            className="flex gap-4 border-b px-4 py-4 last:border-b-0"
+            // Fade on the row, not on each cell. Opacity inherits to children
+            // so it looks identical, but it serialises one inline style per
+            // row instead of one per cell. This markup ships in full on every
+            // prefetch of the route, so the difference is not academic.
+            // Rounded because 1 - r * 0.12 otherwise emits values like
+            // 0.16000000000000003 straight into the payload.
+            style={{ opacity: Math.max(0.15, Math.round((1 - r * 0.12) * 100) / 100) }}
+          >
             {Array.from({ length: columns }).map((_, c) => (
-              <Skeleton key={c} className="h-4 flex-1" style={{ opacity: 1 - r * 0.12 }} />
+              <Skeleton key={c} className="h-4 flex-1" />
             ))}
           </div>
         ))}

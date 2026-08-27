@@ -89,7 +89,10 @@ export function formatMoney(amountMajor: number | null | undefined, currency: st
 
 export type PaymentSummary = {
   totalMinor: number
+  /** Everything received: the Payment ledger plus any advance carried in. */
   paidMinor: number
+  /** The advance component alone, for rendering the "less received" line. */
+  advanceMinor: number
   balanceMinor: number
   balance: number
   isOverdue: boolean
@@ -106,12 +109,22 @@ export function paymentSummary(
   amountPaid: number | null | undefined,
   dueDate: Date | null | undefined,
   isDraft: boolean,
-  currency: string
+  currency: string,
+  /**
+   * Money already in hand when the invoice was raised (a prior advance or
+   * earlier milestone). Optional so every existing call site keeps its exact
+   * behaviour: omitted means zero, which deducts nothing.
+   */
+  advanceReceived: number | null | undefined = 0
 ): PaymentSummary {
   const decimals = currencyDecimals(currency)
   const factor = 10 ** decimals
   const totalMinor = Math.round((Number(totalAmount) || 0) * factor)
-  const paidMinor = Math.round((Number(amountPaid) || 0) * factor)
+  // Negative input would inflate the balance and let an invoice over-bill, so
+  // both components are floored at zero.
+  const advanceMinor = Math.max(0, Math.round((Number(advanceReceived) || 0) * factor))
+  const ledgerMinor = Math.max(0, Math.round((Number(amountPaid) || 0) * factor))
+  const paidMinor = ledgerMinor + advanceMinor
   const balanceMinor = Math.max(0, totalMinor - paidMinor)
   const pastDue = !!dueDate && dueDate.getTime() < Date.now()
 
@@ -125,6 +138,7 @@ export function paymentSummary(
   return {
     totalMinor,
     paidMinor,
+    advanceMinor,
     balanceMinor,
     balance: fromMinor(balanceMinor, decimals),
     isOverdue: !isDraft && pastDue && balanceMinor > 0,

@@ -41,6 +41,7 @@ export type FilterableDoc = {
   amountPaid: number
   dueDate: Date | null
   currency: string
+  advanceReceived?: number
 }
 
 /** Narrows an untrusted ?filter= value; anything unknown falls back to "all". */
@@ -63,7 +64,14 @@ export function matchesFilter(doc: FilterableDoc, key: FilterKey): boolean {
   if (doc.type !== "INVOICE") return false
   if (doc.status === "DRAFT" || doc.status === "VOID") return false
 
-  const summary = paymentSummary(doc.totalAmount, doc.amountPaid, doc.dueDate, false, doc.currency)
+  const summary = paymentSummary(
+    doc.totalAmount,
+    doc.amountPaid,
+    doc.dueDate,
+    false,
+    doc.currency,
+    doc.advanceReceived
+  )
 
   switch (key) {
     case "invoiced":
