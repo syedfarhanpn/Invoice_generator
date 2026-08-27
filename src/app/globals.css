@@ -168,3 +168,27 @@
     display: table-header-group;
   }
 }
+
+/* Growing bar for the navigation progress indicator. It deliberately stops
+   short of 100% - the remainder is filled by the "done" state, so the bar
+   never claims to be finished while the route is still resolving. */
+@keyframes nav-progress {
+  0% {
+    width: 0%;
+    opacity: 0;
+  }
+  5% {
+    opacity: 0;
+  }
+  6% {
+    opacity: 1;
+  }
+  40% {
+    width: 55%;
+    opacity: 1;
+  }
+  100% {
+    width: 85%;
+    opacity: 1;
+  }
+}

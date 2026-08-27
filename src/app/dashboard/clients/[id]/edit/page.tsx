@@ -3,6 +3,8 @@ import { getCurrentUser } from "@/lib/current-user"
 import { notFound } from "next/navigation"
 import EditClientForm from "./edit-form"
 
+export const metadata = { title: "Edit client" }
+
 export default async function EditClientPage(props: { params: Promise<{ id: string }> }) {
   const params = await props.params
   const user = await getCurrentUser()

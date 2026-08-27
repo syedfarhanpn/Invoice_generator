@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { NavigationProgress } from "@/components/app/navigation-progress";
 import { ThemeScript } from "@/components/app/theme-script";
 
 const geistSans = Geist({
@@ -14,7 +15,11 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Client Kit Studio",
+  // Pages set only their own name; the template appends the product.
+  title: {
+    default: "Client Kit Studio",
+    template: "%s - Client Kit Studio",
+  },
   description: "Client document generator and CRM SaaS",
 };
 
@@ -29,6 +34,7 @@ export default function RootLayout({
         <ThemeScript />
       </head>
       <body className={`${geistSans.variable} ${geistMono.variable} min-h-full flex flex-col antialiased bg-background text-foreground`}>
+        <NavigationProgress />
         {children}
       </body>
     </html>

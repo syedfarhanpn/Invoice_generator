@@ -5,6 +5,8 @@ import Link from "next/link"
 import prisma from "@/lib/db"
 import { getCurrentUser } from "@/lib/current-user"
 
+export const metadata = { title: "Clients" }
+
 export default async function ClientsPage() {
   const user = await getCurrentUser()
 

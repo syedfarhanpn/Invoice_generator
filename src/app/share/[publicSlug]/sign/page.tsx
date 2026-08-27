@@ -4,6 +4,8 @@ import ContractPreview from "@/app/dashboard/documents/[id]/previews/contract-pr
 import SignForm from "./sign-form"
 import type { ContractContent } from "@/lib/types"
 
+export const metadata = { title: "Review & Sign" }
+
 export default async function SignContractPage(props: { params: Promise<{ publicSlug: string }> }) {
   const params = await props.params
   const document = await prisma.document.findUnique({

@@ -6,6 +6,8 @@ import { MIN_PASSWORD_LENGTH } from "@/lib/password"
 import { SubmitButton } from "@/app/login/submit-button"
 import { changePassword } from "./actions"
 
+export const metadata = { title: "Security" }
+
 export default async function SecuritySettingsPage(props: {
   searchParams: Promise<{ error?: string; updated?: string }>
 }) {

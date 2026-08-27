@@ -3,6 +3,8 @@ import { notFound } from "next/navigation"
 import DocumentEditor from "./document-editor"
 import { getCurrentUser } from "@/lib/current-user"
 
+export const metadata = { title: "Document" }
+
 export default async function DocumentPage(props: { params: Promise<{ id: string }> }) {
   const params = await props.params
   const user = await getCurrentUser()

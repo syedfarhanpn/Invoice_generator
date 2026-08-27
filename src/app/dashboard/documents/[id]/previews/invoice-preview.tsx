@@ -175,22 +175,24 @@ export default function InvoicePreview({
         </div>
 
         <div className="mb-12 flex-1">
-          <table className="w-full text-left border-collapse">
+          <table className="w-full table-fixed text-left border-collapse">
             <thead>
               <tr className="border-b border-muted">
-                <th className="py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Description</th>
-                <th className="py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground text-center">Qty</th>
-                <th className="py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground text-right">Rate</th>
-                <th className="py-3 text-[10px] font-bold uppercase tracking-widest text-foreground text-right">Amount</th>
+                <th className="w-1/2 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Description</th>
+                <th className="w-[12%] py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground text-center">Qty</th>
+                <th className="w-[19%] py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground text-right">Rate</th>
+                <th className="w-[19%] py-3 text-[10px] font-bold uppercase tracking-widest text-foreground text-right">Amount</th>
               </tr>
             </thead>
             <tbody>
               {lineItems.map((item, i) => (
                 <tr key={i} className="border-b border-muted/50">
-                  <td className="py-4 font-medium">{item.description || "-"}</td>
-                  <td className="py-4 text-center text-muted-foreground">{item.qty}</td>
-                  <td className="py-4 text-right text-muted-foreground">{formatMoney(item.rate, currency)}</td>
-                  <td className="py-4 text-right font-semibold">{formatMoney(lineAmount(item, currency), currency)}</td>
+                  <td className="py-4 pr-4 align-top font-medium break-words whitespace-pre-wrap">
+                    {item.description || "-"}
+                  </td>
+                  <td className="py-4 align-top text-center text-muted-foreground whitespace-nowrap">{item.qty}</td>
+                  <td className="py-4 align-top text-right text-muted-foreground whitespace-nowrap">{formatMoney(item.rate, currency)}</td>
+                  <td className="py-4 align-top text-right font-semibold whitespace-nowrap">{formatMoney(lineAmount(item, currency), currency)}</td>
                 </tr>
               ))}
               {lineItems.length === 0 && (

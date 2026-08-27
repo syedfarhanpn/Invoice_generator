@@ -9,6 +9,8 @@ import { archiveClient } from "../actions"
 import { LifecycleBadge, PaymentBadge } from "@/components/app/status-badge"
 import { formatMoney } from "@/lib/money"
 
+export const metadata = { title: "Client" }
+
 export default async function ClientProfilePage(props: { params: Promise<{ id: string }> }) {
   const params = await props.params
   const user = await getCurrentUser()

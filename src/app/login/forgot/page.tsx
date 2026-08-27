@@ -6,6 +6,8 @@ import { Label } from "@/components/ui/label"
 import { requestPasswordReset } from "../actions"
 import { SubmitButton } from "../submit-button"
 
+export const metadata = { title: "Reset password" }
+
 export default async function ForgotPasswordPage(props: {
   searchParams: Promise<{ error?: string; sent?: string }>
 }) {

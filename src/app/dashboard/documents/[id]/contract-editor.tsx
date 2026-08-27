@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
+import { SaveButton } from "@/components/app/save-button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card } from "@/components/ui/card"
@@ -10,7 +11,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
-import { Trash2, Plus, Save, CheckCircle2, Ban, Trash } from "lucide-react"
+import { Trash2, Plus, CheckCircle2, Ban, Trash } from "lucide-react"
 import type { BusinessProfile, Client, Document } from "@prisma/client"
 import { updateDocument, finalizeDocument, voidDocument, deleteDraftDocument } from "./actions"
 import ContractPreview from "./previews/contract-preview"
@@ -47,6 +48,8 @@ export default function ContractEditor({
   const [feeNote, setFeeNote] = useState(initialContent.feeNote || "")
 
   const [isSaving, setIsSaving] = useState(false)
+  // Bumped on every successful save; drives the green confirmation.
+  const [savedAt, setSavedAt] = useState<number | null>(null)
   const [isFinalizing, setIsFinalizing] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -86,6 +89,7 @@ export default function ContractEditor({
         content: buildContent(),
       })
       router.refresh()
+      setSavedAt(Date.now())
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save")
     } finally {
@@ -132,9 +136,12 @@ export default function ContractEditor({
           </div>
           {isDraft ? (
             <div className="flex gap-2">
-              <Button onClick={handleSave} size="sm" variant="outline" disabled={isSaving || isFinalizing}>
-                <Save className="w-4 h-4 mr-2" /> {isSaving ? "Saving..." : "Save"}
-              </Button>
+              <SaveButton
+                saving={isSaving}
+                savedAt={savedAt}
+                onClick={handleSave}
+                disabled={isSaving || isFinalizing}
+              />
               <Button onClick={handleFinalize} size="sm" disabled={isSaving || isFinalizing}>
                 <CheckCircle2 className="w-4 h-4 mr-2" /> {isFinalizing ? "Finalizing..." : "Finalize"}
               </Button>

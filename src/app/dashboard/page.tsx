@@ -6,6 +6,8 @@ import { StatsSkeleton, TableSkeleton } from "@/components/app/skeletons"
 import InvoiceStats from "./invoice-stats"
 import RecentDocuments from "./recent-documents"
 
+export const metadata = { title: "Dashboard" }
+
 /**
  * Deliberately NOT async: the title and quick actions are static, so they
  * ship in the first chunk and navigation feels instant. The two

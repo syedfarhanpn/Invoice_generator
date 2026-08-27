@@ -6,7 +6,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import prisma from "@/lib/db"
 import { redirect } from "next/navigation"
 import { getCurrentUser } from "@/lib/current-user"
+import { LogoUploader } from "./logo-uploader"
 import { CURRENCIES } from "@/lib/currencies"
+
+export const metadata = { title: "Business" }
 
 export default async function BusinessProfileSettings() {
   const user = await getCurrentUser()
@@ -26,7 +29,6 @@ export default async function BusinessProfileSettings() {
 
     const data = {
       businessName: formData.get("businessName") as string,
-      logoUrl: formData.get("logoUrl") as string,
       currency: formData.get("currency") as string,
       ownerName: formData.get("ownerName") as string,
       email: formData.get("email") as string,
@@ -78,9 +80,8 @@ export default async function BusinessProfileSettings() {
                   <Label htmlFor="businessName">Business Name</Label>
                   <Input id="businessName" name="businessName" defaultValue={profile?.businessName || ""} required />
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="logoUrl">Logo URL (Optional)</Label>
-                  <Input id="logoUrl" name="logoUrl" defaultValue={profile?.logoUrl || ""} placeholder="https://..." />
+                <div className="md:col-span-2">
+                  <LogoUploader currentLogoUrl={profile?.logoUrl ?? null} />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="ownerName">Owner Name</Label>

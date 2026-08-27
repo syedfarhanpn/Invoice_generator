@@ -5,6 +5,8 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { login } from "./actions";
 import { SubmitButton } from "./submit-button";
 
+export const metadata = { title: "Sign in" }
+
 // No signup form here, and none should be added: accounts are provisioned by
 // a SUPER_ADMIN in the admin console, and the matching auth identity is
 // created in Supabase. See src/lib/current-user.ts for the enforcement.

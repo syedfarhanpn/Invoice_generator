@@ -9,6 +9,8 @@ import { countByFilter, matchesFilter, parseFilter, type FilterableDoc } from "@
 import { formatMoney } from "@/lib/money"
 import { documentKind } from "@/lib/document-kinds"
 
+export const metadata = { title: "Documents" }
+
 export default async function DocumentsHistoryPage(props: {
   searchParams: Promise<{ filter?: string }>
 }) {

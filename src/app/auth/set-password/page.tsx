@@ -9,6 +9,8 @@ import { createClient } from "@/utils/supabase/server"
 import { setNewPassword } from "../actions"
 import { SubmitButton } from "@/app/login/submit-button"
 
+export const metadata = { title: "Set password" }
+
 export default async function SetPasswordPage(props: {
   searchParams: Promise<{ error?: string; welcome?: string }>
 }) {

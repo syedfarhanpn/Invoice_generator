@@ -2,6 +2,8 @@ import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/ca
 import Link from "next/link"
 import { CREATABLE_TYPES, documentKind } from "@/lib/document-kinds"
 
+export const metadata = { title: "Create Document" }
+
 export default async function NewDocumentPage(props: { searchParams: Promise<{ client?: string }> }) {
   const searchParams = await props.searchParams
   const clientParam = searchParams.client ? `&client=${searchParams.client}` : ""

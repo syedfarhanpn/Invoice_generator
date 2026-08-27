@@ -5,6 +5,8 @@ import { getCurrentUser } from "@/lib/current-user"
 import type { InvoiceContent, ContractContent } from "@/lib/types"
 import { CREATABLE_TYPES, documentKind } from "@/lib/document-kinds"
 
+export const metadata = { title: "Creating..." }
+
 const ALLOWED_TYPES: readonly DocumentType[] = CREATABLE_TYPES
 
 export default async function CreateDocumentAction(props: {
