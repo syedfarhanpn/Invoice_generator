@@ -18,11 +18,14 @@ function suggestCodePreview(name: string): string {
 
 export default function ClientForm({
   initial,
+  businessCurrency,
   codeLocked,
   onSubmit,
   submitLabel,
 }: {
   initial?: Partial<ClientFormInput>
+  /** From business settings, shown so "inherit" is not a mystery value. */
+  businessCurrency?: string
   codeLocked?: boolean
   onSubmit: (input: ClientFormInput) => Promise<{ id: string }>
   submitLabel: string
@@ -112,15 +115,31 @@ export default function ClientForm({
               <Label>Default currency</Label>
               <Select value={defaultCurrency || "inherit"} onValueChange={(v) => setDefaultCurrency(!v || v === "inherit" ? "" : v)}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Use business default" />
+                  {/* Base UI renders the raw value unless given a function
+                      child, which would show the literal "inherit". */}
+                  <SelectValue>
+                    {(value: string) =>
+                      !value || value === "inherit"
+                        ? businessCurrency
+                          ? `Business default (${businessCurrency})`
+                          : "Business default"
+                        : (CURRENCIES.find((c) => c.code === value)?.label ?? value)
+                    }
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="inherit">Use business default</SelectItem>
+                  <SelectItem value="inherit">
+                    {businessCurrency ? `Business default (${businessCurrency})` : "Use business default"}
+                  </SelectItem>
                   {CURRENCIES.map((c) => (
                     <SelectItem key={c.code} value={c.code}>{c.label}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+              <p className="text-xs text-muted-foreground">
+                Leave as the business default unless this client is billed in another
+                currency. You can still change it on any individual document.
+              </p>
             </div>
             <div className="space-y-2">
               <Label htmlFor="code">

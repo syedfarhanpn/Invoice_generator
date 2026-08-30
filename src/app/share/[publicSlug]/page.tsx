@@ -69,7 +69,7 @@ export default async function SharedDocumentPage(props: { params: Promise<{ publ
               Review &amp; Sign
             </Link>
           )}
-          <DownloadButton publicSlug={params.publicSlug} />
+          <DownloadButton publicSlug={params.publicSlug} supported={isLineItemDoc} />
         </div>
       </div>
 

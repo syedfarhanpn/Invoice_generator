@@ -12,10 +12,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
 import { Trash2, Plus, CheckCircle2, Ban, Trash } from "lucide-react"
-import type { BusinessProfile, Client, Document } from "@prisma/client"
+import type { BusinessProfile, Client } from "@prisma/client"
+import type { EditorDocument } from "./document-editor"
 import { updateDocument, finalizeDocument, voidDocument, deleteDraftDocument } from "./actions"
 import ContractPreview from "./previews/contract-preview"
 import SharePanel from "./share-panel"
+import { ClientPicker } from "@/components/app/client-picker"
 import { CURRENCIES } from "@/lib/currencies"
 import type { ContractContent, ContractClause, SignaturePayload } from "@/lib/types"
 
@@ -24,7 +26,7 @@ export default function ContractEditor({
   businessProfile,
   clients,
 }: {
-  document: Document & { client: Client | null }
+  document: EditorDocument
   businessProfile: BusinessProfile | null
   clients: Client[]
 }) {
@@ -164,17 +166,12 @@ export default function ContractEditor({
             </div>
             <div className="space-y-2">
               <Label>Client</Label>
-              <Select value={clientId} onValueChange={(v) => setClientId(v ?? "")} disabled={!isDraft}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select a client" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">No client selected</SelectItem>
-                  {clients.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>{c.businessName || c.fullName} ({c.code})</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <ClientPicker
+                clients={clients}
+                value={clientId}
+                onChange={setClientId}
+                disabled={!isDraft}
+              />
               {isDraft && clientId === "none" && (
                 <p className="text-xs text-muted-foreground">Required before finalizing - the serial number is allocated per client.</p>
               )}

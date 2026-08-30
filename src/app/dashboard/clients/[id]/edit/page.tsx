@@ -9,10 +9,16 @@ export default async function EditClientPage(props: { params: Promise<{ id: stri
   const params = await props.params
   const user = await getCurrentUser()
 
-  const client = await prisma.client.findUnique({
-    where: { id: params.id, userId: user.id },
-    include: { _count: { select: { documents: true } } },
-  })
+  const [client, profile] = await Promise.all([
+    prisma.client.findUnique({
+      where: { id: params.id, userId: user.id },
+      include: { _count: { select: { documents: true } } },
+    }),
+    prisma.businessProfile.findUnique({
+      where: { userId: user.id },
+      select: { currency: true },
+    }),
+  ])
   if (!client) return notFound()
 
   return (
@@ -24,6 +30,7 @@ export default async function EditClientPage(props: { params: Promise<{ id: stri
       <EditClientForm
         clientId={client.id}
         codeLocked={client._count.documents > 0}
+        businessCurrency={profile?.currency ?? "USD"}
         initial={{
           fullName: client.fullName,
           businessName: client.businessName ?? "",

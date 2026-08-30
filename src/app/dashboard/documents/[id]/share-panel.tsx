@@ -81,7 +81,7 @@ export default function SharePanel({
               <ExternalLink className="w-4 h-4 mr-2" /> Open
             </Button>
           </a>
-          <a href={`${shareUrl}?print=1`} target="_blank" rel="noreferrer" className="inline-flex">
+          <a href={`${shareUrl}/download`} target="_blank" rel="noreferrer" className="inline-flex">
             <Button type="button" variant="default" size="sm">
               <Download className="w-4 h-4 mr-2" /> Download PDF
             </Button>

@@ -1,12 +1,11 @@
-import { Card } from "@/components/ui/card"
 import { buttonVariants } from "@/components/ui/button"
 import Link from "next/link"
 import prisma from "@/lib/db"
 import { getCurrentUser } from "@/lib/current-user"
-import { LifecycleBadge, PaymentBadge } from "@/components/app/status-badge"
 import { DocumentFilterBar } from "@/components/app/document-filter-bar"
 import { countByFilter, matchesFilter, parseFilter, type FilterableDoc } from "@/lib/document-filters"
 import { formatMoney } from "@/lib/money"
+import { DocumentsTable } from "./documents-table"
 import { documentKind } from "@/lib/document-kinds"
 
 export const metadata = { title: "Documents" }
@@ -55,63 +54,24 @@ export default async function DocumentsHistoryPage(props: {
 
       <DocumentFilterBar active={activeFilter} counts={counts} />
 
-      <Card>
-        <div className="p-0 overflow-x-auto">
-          <table className="w-full text-sm text-left border-collapse">
-            <thead className="bg-muted text-muted-foreground border-b">
-              <tr>
-                <th className="p-4 font-medium">Reference</th>
-                <th className="p-4 font-medium">Type</th>
-                <th className="p-4 font-medium">Client</th>
-                <th className="p-4 font-medium">Status</th>
-                <th className="p-4 font-medium text-right">Amount</th>
-                <th className="p-4 font-medium">Date</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visible.map(({ doc }) => (
-                <tr key={doc.id} className="border-b hover:bg-muted/50 transition-colors">
-                  <td className="p-4 font-medium">
-                    <Link href={`/dashboard/documents/${doc.id}`} className="hover:underline text-primary">
-                      {doc.refNumber || doc.title || "Untitled draft"}
-                    </Link>
-                  </td>
-                  <td className="p-4 text-muted-foreground">{documentKind(doc.type).label}</td>
-                  <td className="p-4">{doc.client?.businessName || doc.client?.fullName || "No Client"}</td>
-                  <td className="p-4">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <LifecycleBadge status={doc.status} />
-                      {doc.type === "INVOICE" && doc.status !== "DRAFT" && doc.status !== "VOID" && (
-                        <PaymentBadge
-                          totalAmount={doc.totalAmount ? Number(doc.totalAmount) : null}
-                          amountPaid={Number(doc.amountPaid)}
-                          dueDate={doc.dueDate}
-                          isDraft={false}
-                          currency={doc.currency}
-                          advanceReceived={Number(doc.advanceReceived)}
-                        />
-                      )}
-                    </div>
-                  </td>
-                  <td className="p-4 text-right">
-                    {doc.totalAmount != null ? formatMoney(Number(doc.totalAmount), doc.currency) : "-"}
-                  </td>
-                  <td className="p-4 text-muted-foreground">{doc.createdAt.toLocaleDateString()}</td>
-                </tr>
-              ))}
-              {visible.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="p-8 text-center text-muted-foreground">
-                    {documents.length === 0
-                      ? "No documents found."
-                      : "No documents match this filter."}
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </Card>
+      <DocumentsTable
+        rows={visible.map(({ doc }) => ({
+          id: doc.id,
+          refLabel: doc.refNumber || doc.title || "Untitled draft",
+          typeLabel: documentKind(doc.type).label,
+          type: doc.type,
+          clientName: doc.client?.businessName || doc.client?.fullName || "No Client",
+          status: doc.status,
+          totalAmount: doc.totalAmount != null ? Number(doc.totalAmount) : null,
+          amountPaid: Number(doc.amountPaid),
+          advanceReceived: Number(doc.advanceReceived),
+          dueDate: doc.dueDate,
+          currency: doc.currency,
+          amountText: doc.totalAmount != null ? formatMoney(Number(doc.totalAmount), doc.currency) : "-",
+          dateText: doc.createdAt.toLocaleDateString(),
+        }))}
+        emptyMessage={documents.length === 0 ? "No documents found." : "No documents match this filter."}
+      />
     </div>
   )
 }

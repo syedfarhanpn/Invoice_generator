@@ -15,10 +15,11 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  // Pages set only their own name; the template appends the product.
+  // Pages show their own name alone. `default` still covers routes that set
+  // no title of their own (the landing page).
   title: {
     default: "Client Kit Studio",
-    template: "%s - Client Kit Studio",
+    template: "%s",
   },
   description: "Client document generator and CRM SaaS",
 };

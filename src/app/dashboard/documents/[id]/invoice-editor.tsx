@@ -12,16 +12,17 @@ import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import { Trash2, Plus, CheckCircle2, Ban, Trash, FileOutput, ArrowUpRight } from "lucide-react"
-import type { BusinessProfile, Client, Document } from "@prisma/client"
+import type { BusinessProfile, Client } from "@prisma/client"
 import { updateDocument, finalizeDocument, voidDocument, deleteDraftDocument, convertToInvoice } from "./actions"
 import InvoicePreview from "./previews/invoice-preview"
 import SharePanel from "./share-panel"
 import PaymentsPanel from "./payments-panel"
+import { ClientPicker } from "@/components/app/client-picker"
 import { CURRENCIES } from "@/lib/currencies"
 import type { InvoiceContent, InvoiceLineItem } from "@/lib/types"
 import { computeTotals, formatMoney } from "@/lib/money"
 import { documentKind } from "@/lib/document-kinds"
-import type { ConversionLink } from "./document-editor"
+import type { EditorDocument } from "./document-editor"
 
 type PaymentRow = {
   id: string
@@ -38,11 +39,7 @@ export default function InvoiceEditor({
   clients,
   payments,
 }: {
-  document: Document & {
-    client: Client | null
-    convertedTo: ConversionLink[]
-    convertedFrom: ConversionLink | null
-  }
+  document: EditorDocument
   businessProfile: BusinessProfile | null
   clients: Client[]
   payments: PaymentRow[]
@@ -68,8 +65,8 @@ export default function InvoiceEditor({
   )
   const [notes, setNotes] = useState(initialContent.notes || "")
   const [advanceReceived, setAdvanceReceived] = useState(
-    document.advanceReceived != null && Number(document.advanceReceived) > 0
-      ? String(Number(document.advanceReceived))
+    document.advanceReceived > 0
+      ? String(document.advanceReceived)
       : ""
   )
 
@@ -225,17 +222,12 @@ export default function InvoiceEditor({
             </div>
             <div className="space-y-2">
               <Label>Client</Label>
-              <Select value={clientId} onValueChange={(v) => setClientId(v ?? "")} disabled={!isDraft}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select a client" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">No client selected</SelectItem>
-                  {clients.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>{c.businessName || c.fullName} ({c.code})</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <ClientPicker
+                clients={clients}
+                value={clientId}
+                onChange={setClientId}
+                disabled={!isDraft}
+              />
               {isDraft && clientId === "none" && (
                 <p className="text-xs text-muted-foreground">Required before finalizing - the serial number is allocated per client.</p>
               )}
@@ -434,8 +426,8 @@ export default function InvoiceEditor({
                 <PaymentsPanel
                   documentId={document.id}
                   currency={currency}
-                  totalAmount={document.totalAmount ? Number(document.totalAmount) : null}
-                  amountPaid={Number(document.amountPaid)}
+                  totalAmount={document.totalAmount}
+                  amountPaid={document.amountPaid}
                   dueDate={document.dueDate ? document.dueDate.toISOString() : null}
                   payments={payments}
                 />
