@@ -4,6 +4,8 @@ import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { SaveButton } from "@/components/app/save-button"
+import { DocumentPreviewPane } from "@/components/app/document-preview-pane"
+import { cn } from "@/lib/utils"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card } from "@/components/ui/card"
@@ -11,7 +13,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
-import { Trash2, Plus, CheckCircle2, Ban, Trash } from "lucide-react"
+import { Trash2, Plus, CheckCircle2, Ban, Trash, Eye } from "lucide-react"
 import type { BusinessProfile, Client } from "@prisma/client"
 import type { EditorDocument } from "./document-editor"
 import { updateDocument, finalizeDocument, voidDocument, deleteDraftDocument } from "./actions"
@@ -52,6 +54,8 @@ export default function ContractEditor({
   const [isSaving, setIsSaving] = useState(false)
   // Bumped on every successful save; drives the green confirmation.
   const [savedAt, setSavedAt] = useState<number | null>(null)
+  // Phones show one pane at a time; md+ always shows both.
+  const [mobilePane, setMobilePane] = useState<"edit" | "view">("edit")
   const [isFinalizing, setIsFinalizing] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -128,7 +132,7 @@ export default function ContractEditor({
 
   return (
     <div className="flex h-full flex-col md:flex-row overflow-hidden">
-      <div className="w-full md:w-[440px] lg:w-[480px] border-r bg-background flex flex-col h-full">
+      <div className={cn("w-full md:w-[440px] lg:w-[480px] border-r bg-background flex flex-col h-full", mobilePane === "view" && "hidden md:flex")}>
         <div className="p-4 border-b flex items-center justify-between sticky top-0 bg-background z-10">
           <div>
             <div className="font-semibold">{document.refNumber || "Contract (draft)"}</div>
@@ -136,6 +140,14 @@ export default function ContractEditor({
               {isDraft ? "Editable" : isSigned ? "Signed - locked" : "Finalized - awaiting signature"}
             </div>
           </div>
+          <Button
+            size="sm"
+            variant="outline"
+            className="md:hidden"
+            onClick={() => setMobilePane("view")}
+          >
+            <Eye className="mr-2 size-4" /> View
+          </Button>
           {isDraft ? (
             <div className="flex gap-2">
               <SaveButton
@@ -284,9 +296,9 @@ export default function ContractEditor({
         </div>
       </div>
 
-      <div className="flex-1 bg-muted/30 flex flex-col h-full overflow-hidden">
-        <div className="flex-1 overflow-y-auto p-4 md:p-8 flex justify-center">
-          <div className="w-full max-w-[800px] min-h-[1000px] bg-background shadow-xl border overflow-hidden">
+      <div className={cn("flex-1 h-full overflow-hidden", mobilePane === "edit" && "hidden md:block")}>
+        <DocumentPreviewPane onEdit={() => setMobilePane("edit")} remeasureKey={mobilePane}>
+          <div className="min-h-[1000px] bg-background shadow-xl border">
             <ContractPreview
               refNumber={document.refNumber}
               isDraft={isDraft}
@@ -299,7 +311,7 @@ export default function ContractEditor({
               signature={signature}
             />
           </div>
-        </div>
+        </DocumentPreviewPane>
       </div>
     </div>
   )

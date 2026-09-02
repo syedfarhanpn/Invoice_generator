@@ -11,13 +11,15 @@ import { Card } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
-import { Trash2, Plus, CheckCircle2, Ban, Trash, FileOutput, ArrowUpRight } from "lucide-react"
+import { Trash2, Plus, CheckCircle2, Ban, Trash, FileOutput, ArrowUpRight, Eye } from "lucide-react"
 import type { BusinessProfile, Client } from "@prisma/client"
 import { updateDocument, finalizeDocument, voidDocument, deleteDraftDocument, convertToInvoice } from "./actions"
 import InvoicePreview from "./previews/invoice-preview"
 import SharePanel from "./share-panel"
 import PaymentsPanel from "./payments-panel"
 import { ClientPicker } from "@/components/app/client-picker"
+import { DocumentPreviewPane } from "@/components/app/document-preview-pane"
+import { cn } from "@/lib/utils"
 import { CURRENCIES } from "@/lib/currencies"
 import type { InvoiceContent, InvoiceLineItem } from "@/lib/types"
 import { computeTotals, formatMoney } from "@/lib/money"
@@ -75,6 +77,9 @@ export default function InvoiceEditor({
   const [savedAt, setSavedAt] = useState<number | null>(null)
   const [isFinalizing, setIsFinalizing] = useState(false)
   const [isConverting, setIsConverting] = useState(false)
+  // Phones cannot show both panes at once, so one is visible at a time. On
+  // md+ both are always shown and this is ignored.
+  const [mobilePane, setMobilePane] = useState<"edit" | "view">("edit")
   const [error, setError] = useState<string | null>(null)
 
   const selectedClient = clients.find((c) => c.id === clientId) || document.client || undefined
@@ -164,12 +169,20 @@ export default function InvoiceEditor({
 
   return (
     <div className="flex h-full flex-col md:flex-row overflow-hidden">
-      <div className="w-full md:w-[440px] lg:w-[480px] border-r bg-background flex flex-col h-full">
+      <div className={cn("w-full md:w-[440px] lg:w-[480px] border-r bg-background flex flex-col h-full", mobilePane === "view" && "hidden md:flex")}>
         <div className="p-4 border-b flex items-center justify-between sticky top-0 bg-background z-10">
           <div>
             <div className="font-semibold">{document.refNumber || `${kind.label} (draft)`}</div>
             <div className="text-xs text-muted-foreground">{isDraft ? "Editable" : "Finalized - read only"}</div>
           </div>
+          <Button
+            size="sm"
+            variant="outline"
+            className="md:hidden"
+            onClick={() => setMobilePane("view")}
+          >
+            <Eye className="mr-2 size-4" /> View
+          </Button>
           {isDraft ? (
             <div className="flex gap-2">
               <SaveButton
@@ -446,9 +459,9 @@ export default function InvoiceEditor({
         </div>
       </div>
 
-      <div className="flex-1 bg-muted/30 flex flex-col h-full overflow-hidden">
-        <div className="flex-1 overflow-y-auto p-4 md:p-8 flex justify-center">
-          <div className="w-full max-w-[800px] self-start bg-background shadow-xl border">
+      <div className={cn("flex-1 h-full overflow-hidden", mobilePane === "edit" && "hidden md:block")}>
+        <DocumentPreviewPane onEdit={() => setMobilePane("edit")} remeasureKey={mobilePane}>
+          <div className="bg-background shadow-xl border">
             <InvoicePreview
               type={document.type}
               refNumber={document.refNumber}
@@ -466,7 +479,7 @@ export default function InvoiceEditor({
               client={selectedClient}
             />
           </div>
-        </div>
+        </DocumentPreviewPane>
       </div>
     </div>
   )
