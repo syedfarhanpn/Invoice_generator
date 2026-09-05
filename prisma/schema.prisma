@@ -46,6 +46,7 @@ model User {
   lastLoginAt DateTime?
 
   apiKeys        ApiKey[]
+  payments       Payment[]
   idempotency    IdempotencyRecord[]
   auditActions AdminAuditLog[] @relation("AdminAuditActor")
   auditTargets AdminAuditLog[] @relation("AdminAuditTarget")
@@ -184,6 +185,7 @@ model Client {
   contractSeq Int @default(0)
   quoteSeq    Int @default(0)
   proformaSeq Int @default(0)
+  receiptSeq  Int @default(0)
 
   documents Document[]
   createdAt DateTime   @default(now())
@@ -342,6 +344,18 @@ model Payment {
   id         String   @id @default(cuid())
   documentId String
   document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  // Denormalised from the parent document so a receipt number can carry the
+  // same @@unique backstop the document serials have - Payment is otherwise
+  // only reachable through Document and could not be scoped per tenant.
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Allocated when the payment is recorded, e.g. RCP-ACME-001. A receipt
+  // acknowledges money that has already moved, so unlike a document it is
+  // never a draft and never needs finalising.
+  receiptNumber String?
+  sequence      Int?
   amount     Decimal  @db.Decimal(12, 2)
   paidOn     DateTime
   method     String? // "UPI", "Bank transfer", "Cash", ...
@@ -349,7 +363,9 @@ model Payment {
   note       String?
   createdAt  DateTime @default(now())
 
+  @@unique([userId, receiptNumber])
   @@index([documentId])
+  @@index([userId, paidOn])
 }
 
 model DocumentActivity {

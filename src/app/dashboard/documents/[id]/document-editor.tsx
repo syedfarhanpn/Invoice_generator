@@ -48,6 +48,7 @@ export default function DocumentEditor({
     method: p.method,
     reference: p.reference,
     note: p.note,
+    receiptNumber: p.receiptNumber,
   }))
 
   const editorDocument: EditorDocument = {

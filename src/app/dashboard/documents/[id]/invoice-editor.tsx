@@ -16,7 +16,7 @@ import type { BusinessProfile, Client } from "@prisma/client"
 import { updateDocument, finalizeDocument, voidDocument, deleteDraftDocument, convertToInvoice } from "./actions"
 import InvoicePreview from "./previews/invoice-preview"
 import SharePanel from "./share-panel"
-import PaymentsPanel from "./payments-panel"
+import PaymentsPanel, { type PaymentRow } from "./payments-panel"
 import { ClientPicker } from "@/components/app/client-picker"
 import { DocumentPreviewPane } from "@/components/app/document-preview-pane"
 import { cn } from "@/lib/utils"
@@ -26,14 +26,6 @@ import { computeTotals, formatMoney } from "@/lib/money"
 import { documentKind } from "@/lib/document-kinds"
 import type { EditorDocument } from "./document-editor"
 
-type PaymentRow = {
-  id: string
-  amount: number
-  paidOn: string
-  method: string | null
-  reference: string | null
-  note: string | null
-}
 
 export default function InvoiceEditor({
   document,
@@ -442,6 +434,7 @@ export default function InvoiceEditor({
                   totalAmount={document.totalAmount}
                   amountPaid={document.amountPaid}
                   dueDate={document.dueDate ? document.dueDate.toISOString() : null}
+                  publicSlug={document.publicSlug}
                   payments={payments}
                 />
               </div>

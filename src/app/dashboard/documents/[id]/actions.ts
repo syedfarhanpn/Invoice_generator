@@ -4,7 +4,7 @@ import prisma from "@/lib/db"
 import type { Prisma } from "@prisma/client"
 import { revalidatePath } from "next/cache"
 import { getCurrentUser } from "@/lib/current-user"
-import { allocateRef } from "@/lib/allocate-ref"
+import { allocateRef, allocateReceiptRef } from "@/lib/allocate-ref"
 import { buildSnapshot } from "@/lib/snapshot"
 import { hashContent } from "@/lib/hash"
 import { generatePublicSlug } from "@/lib/slug"
@@ -335,14 +335,21 @@ export async function recordPayment(documentId: string, input: RecordPaymentInpu
   if (!(input.amount > 0)) throw new Error("Payment amount must be greater than zero.")
 
   await prisma.$transaction(async (tx) => {
+    // Every recorded payment gets a numbered receipt straight away. There is
+    // no draft state to wait for - the money has already moved.
+    const receipt = doc.clientId ? await allocateReceiptRef(tx, doc.clientId) : null
+
     await tx.payment.create({
       data: {
         documentId,
+        userId: user.id,
         amount: input.amount,
         paidOn: input.paidOn,
         method: input.method || null,
         reference: input.reference || null,
         note: input.note || null,
+        receiptNumber: receipt?.refNumber ?? null,
+        sequence: receipt?.sequence ?? null,
       },
     })
     await resyncAmountPaid(tx, documentId)

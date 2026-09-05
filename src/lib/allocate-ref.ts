@@ -5,7 +5,7 @@ import { documentKind } from "./document-kinds"
 // Allowlist for the column name interpolated into the raw SQL below. The
 // value already comes from a hardcoded config table, but the query is built
 // by string interpolation, so it is checked against this list before use.
-const SEQ_COLUMNS = ["invoiceSeq", "contractSeq", "quoteSeq", "proformaSeq"] as const
+const SEQ_COLUMNS = ["invoiceSeq", "contractSeq", "quoteSeq", "proformaSeq", "receiptSeq"] as const
 
 function pad(n: number): string {
   return n.toString().padStart(3, "0")
@@ -25,13 +25,17 @@ function pad(n: number): string {
  * comment on the Client serial counters in prisma/schema.prisma for why
  * numbers are assigned late (keeps the sequence gapless).
  */
-export async function allocateRef(
+/**
+ * Core allocator. Takes the counter column and prefix explicitly so receipts -
+ * which are not documents and have no DocumentType - can reuse the same row
+ * lock rather than growing a parallel implementation that could drift.
+ */
+async function allocateSerial(
   tx: Prisma.TransactionClient,
   clientId: string,
-  type: DocumentType
+  column: (typeof SEQ_COLUMNS)[number],
+  prefix: string
 ): Promise<{ refNumber: string; sequence: number }> {
-  const kind = documentKind(type)
-  const column = kind.seqColumn
   if (!SEQ_COLUMNS.includes(column)) {
     throw new Error(`Refusing to allocate a serial from an unknown column: ${column}`)
   }
@@ -43,14 +47,37 @@ export async function allocateRef(
   const row = rows[0]
   if (!row) {
     throw new Error(
-      "Cannot finalize a document with no client selected - a client is required so a serial number can be allocated."
+      "Cannot allocate a serial number without a client - one is required so the number can be scoped to them."
     )
   }
 
   const nextSeq = row.seq + 1
   await tx.$executeRawUnsafe(`UPDATE "Client" SET "${column}" = $1 WHERE "id" = $2`, nextSeq, clientId)
 
-  return { refNumber: `${kind.prefix}-${row.code}-${pad(nextSeq)}`, sequence: nextSeq }
+  return { refNumber: `${prefix}-${row.code}-${pad(nextSeq)}`, sequence: nextSeq }
+}
+
+/**
+ * Allocates the next receipt number for a client, e.g. RCP-ACME-001.
+ *
+ * Receipts count on their own series: a payment against any invoice advances
+ * the receipt book, not the invoice book.
+ */
+export async function allocateReceiptRef(
+  tx: Prisma.TransactionClient,
+  clientId: string
+): Promise<{ refNumber: string; sequence: number }> {
+  return allocateSerial(tx, clientId, "receiptSeq", "RCP")
+}
+
+export async function allocateRef(
+  tx: Prisma.TransactionClient,
+  clientId: string,
+  type: DocumentType
+): Promise<{ refNumber: string; sequence: number }> {
+  const kind = documentKind(type)
+  return allocateSerial(tx, clientId, kind.seqColumn, kind.prefix)
+
 }
 
 /**

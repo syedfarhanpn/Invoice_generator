@@ -181,7 +181,8 @@ async function main() {
     },
   })
   await prisma.payment.create({
-    data: { documentId: invoice1.id, amount: 4500, paidOn: new Date('2026-08-10'), method: 'Bank Transfer' },
+    data: { documentId: invoice1.id,
+      userId: user.id, amount: 4500, paidOn: new Date('2026-08-10'), method: 'Bank Transfer' },
   })
   await prisma.documentActivity.createMany({
     data: [

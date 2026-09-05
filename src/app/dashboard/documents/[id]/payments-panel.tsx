@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { useRouter } from "next/navigation"
-import { Button } from "@/components/ui/button"
+import { Button, buttonVariants } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
@@ -13,15 +13,16 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog"
-import { Plus, Trash2 } from "lucide-react"
+import { Plus, Trash2, Receipt } from "lucide-react"
 import { recordPayment, deletePayment } from "./actions"
 import { formatMoney, paymentSummary } from "@/lib/money"
 
-type PaymentRow = {
+export type PaymentRow = {
   id: string
   amount: number
   paidOn: string
   method: string | null
+  receiptNumber: string | null
   reference: string | null
   note: string | null
 }
@@ -33,6 +34,7 @@ export default function PaymentsPanel({
   amountPaid,
   dueDate,
   payments,
+  publicSlug,
 }: {
   documentId: string
   currency: string
@@ -40,6 +42,8 @@ export default function PaymentsPanel({
   amountPaid: number
   dueDate: string | null
   payments: PaymentRow[]
+  /** Receipts live under the invoice share link; null before it is shared. */
+  publicSlug: string | null
 }) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
@@ -138,14 +142,32 @@ export default function PaymentsPanel({
         <div className="rounded-lg border divide-y">
           {payments.map((p) => (
             <div key={p.id} className="flex items-center justify-between px-3 py-2 text-sm">
-              <div>
-                <span className="font-medium">{formatMoney(p.amount, currency)}</span>
-                <span className="text-muted-foreground ml-2">{new Date(p.paidOn).toLocaleDateString()}</span>
-                {p.method && <span className="text-muted-foreground ml-2">via {p.method}</span>}
+              <div className="min-w-0">
+                <div>
+                  <span className="font-medium">{formatMoney(p.amount, currency)}</span>
+                  <span className="text-muted-foreground ml-2">{new Date(p.paidOn).toLocaleDateString()}</span>
+                  {p.method && <span className="text-muted-foreground ml-2">via {p.method}</span>}
+                </div>
+                {p.receiptNumber && (
+                  <div className="font-mono text-xs text-muted-foreground">{p.receiptNumber}</div>
+                )}
               </div>
-              <Button variant="ghost" size="icon-sm" onClick={() => handleDelete(p.id)}>
-                <Trash2 className="w-3.5 h-3.5" />
-              </Button>
+              <div className="flex shrink-0 items-center gap-1">
+                {/* Receipts are served from the invoice share link, so there is
+                    nothing to download until the invoice has one. */}
+                {publicSlug && (
+                  <a
+                    href={`/share/${publicSlug}/receipt/${p.id}`}
+                    className={buttonVariants({ variant: "ghost", size: "sm" })}
+                    title={p.receiptNumber ? `Download ${p.receiptNumber}` : "Download receipt"}
+                  >
+                    <Receipt className="mr-1.5 size-3.5" /> Receipt
+                  </a>
+                )}
+                <Button variant="ghost" size="icon-sm" onClick={() => handleDelete(p.id)}>
+                  <Trash2 className="w-3.5 h-3.5" />
+                </Button>
+              </div>
             </div>
           ))}
         </div>
