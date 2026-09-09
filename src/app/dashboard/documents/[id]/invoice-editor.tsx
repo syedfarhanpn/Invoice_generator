@@ -308,6 +308,7 @@ export default function InvoiceEditor({
                     inputMode="decimal"
                     value={advanceReceived}
                     onChange={(e) => setAdvanceReceived(e.target.value)}
+                    onFocus={(e) => e.target.select()}
                     disabled={!isDraft}
                     placeholder="0.00"
                   />
@@ -328,15 +329,21 @@ export default function InvoiceEditor({
             <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Line Items</h3>
 
             {lineItems.map((item, index) => (
-              <Card key={index} className="p-3 relative group">
+              <Card key={index} className="p-3 relative">
                 {isDraft && (
+                  // Inside the card bounds: Card is overflow-hidden, so a
+                  // negatively-offset button was clipped to a sliver. Always
+                  // visible rather than hover-only - hover never fires on touch.
                   <Button
-                    variant="destructive"
-                    size="icon"
-                    className="absolute -top-2 -right-2 w-6 h-6 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label={`Remove line item ${index + 1}`}
+                    title="Remove this line"
+                    className="absolute top-1 right-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                     onClick={() => removeLine(index)}
                   >
-                    <Trash2 className="w-3 h-3" />
+                    <Trash2 className="size-4" />
                   </Button>
                 )}
                 <div className="space-y-3">
@@ -356,6 +363,9 @@ export default function InvoiceEditor({
                         type="number"
                         value={item.qty}
                         onChange={(e) => updateLine(index, { qty: parseFloat(e.target.value) || 0 })}
+                        // Without this, typing into a field showing 0 appends
+                        // ("07") instead of replacing it.
+                        onFocus={(e) => e.target.select()}
                         disabled={!isDraft}
                         className="h-8 text-sm"
                       />
@@ -367,6 +377,7 @@ export default function InvoiceEditor({
                         step="0.01"
                         value={item.rate}
                         onChange={(e) => updateLine(index, { rate: parseFloat(e.target.value) || 0 })}
+                        onFocus={(e) => e.target.select()}
                         disabled={!isDraft}
                         className="h-8 text-sm"
                       />

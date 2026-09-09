@@ -3,7 +3,7 @@ import Link from "next/link"
 import prisma from "@/lib/db"
 import { getCurrentUser } from "@/lib/current-user"
 import { DocumentFilterBar } from "@/components/app/document-filter-bar"
-import { countByFilter, matchesFilter, parseFilter, type FilterableDoc } from "@/lib/document-filters"
+import { countByFilter, DEFAULT_FILTER, matchesFilter, parseFilter, type FilterableDoc } from "@/lib/document-filters"
 import { formatMoney } from "@/lib/money"
 import { DocumentsTable } from "./documents-table"
 import { documentKind } from "@/lib/document-kinds"
@@ -70,7 +70,13 @@ export default async function DocumentsHistoryPage(props: {
           amountText: doc.totalAmount != null ? formatMoney(Number(doc.totalAmount), doc.currency) : "-",
           dateText: doc.createdAt.toLocaleDateString(),
         }))}
-        emptyMessage={documents.length === 0 ? "No documents found." : "No documents match this filter."}
+        emptyMessage={
+          documents.length === 0
+            ? "No documents found."
+            : activeFilter === DEFAULT_FILTER
+              ? "Nothing needs attention - everything is settled or closed."
+              : "No documents match this filter."
+        }
       />
     </div>
   )

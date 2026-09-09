@@ -2,8 +2,24 @@ import prisma from "@/lib/db"
 import { notFound } from "next/navigation"
 import DocumentEditor from "./document-editor"
 import { getCurrentUser } from "@/lib/current-user"
+import { documentKind } from "@/lib/document-kinds"
 
-export const metadata = { title: "Document" }
+
+/**
+ * Titles the tab with the document you are actually on ("INV-ACME-001", or
+ * "New Invoice" before it is numbered). Selects only the two columns it needs
+ * rather than reusing the page query, so the extra round trip stays cheap.
+ */
+export async function generateMetadata(props: { params: Promise<{ id: string }> }) {
+  const { id } = await props.params
+  const user = await getCurrentUser()
+  const doc = await prisma.document.findUnique({
+    where: { id, userId: user.id },
+    select: { refNumber: true, type: true },
+  })
+  if (!doc) return { title: "Document" }
+  return { title: doc.refNumber ?? `New ${documentKind(doc.type).label}` }
+}
 
 export default async function DocumentPage(props: { params: Promise<{ id: string }> }) {
   const params = await props.params

@@ -140,6 +140,10 @@ model BusinessProfile {
   defaultTaxLabel        String?
   defaultPaymentTermDays Int?     @default(15)
 
+  // Pre-filled into the Notes field of every new invoice-family document, so
+  // standard wording is not retyped each time. Editable per document.
+  defaultInvoiceNote     String?
+
   // Signature shown on contracts as the issuer's counter-signature.
   signatureName      String?
   signatureImageUrl  String?

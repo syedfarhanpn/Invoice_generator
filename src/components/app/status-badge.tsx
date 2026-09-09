@@ -45,5 +45,26 @@ export function PaymentBadge({
   advanceReceived?: number | null
 }) {
   const summary = paymentSummary(totalAmount, amountPaid, dueDate, isDraft, currency, advanceReceived)
+
+  // Overdue gets a solid red badge rather than the tinted "destructive"
+  // variant, so late money is unmistakable in a list of grey pills.
+  //
+  // It is driven by isOverdue, not by the label: a part-paid invoice reads
+  // "Partial" (a payment on file outranks the due date in the label), and
+  // without this the fact that the rest is late would be invisible. Both
+  // badges show in that case.
+  if (summary.isOverdue) {
+    return (
+      <>
+        {summary.label !== "Overdue" && (
+          <Badge variant={PAYMENT_STYLE[summary.label]}>{summary.label}</Badge>
+        )}
+        <Badge className="border-transparent bg-destructive font-semibold text-white">
+          Overdue
+        </Badge>
+      </>
+    )
+  }
+
   return <Badge variant={PAYMENT_STYLE[summary.label]}>{summary.label}</Badge>
 }

@@ -5,7 +5,7 @@ import { getCurrentUser } from "@/lib/current-user"
 import type { InvoiceContent, ContractContent } from "@/lib/types"
 import { CREATABLE_TYPES, documentKind } from "@/lib/document-kinds"
 
-export const metadata = { title: "Creating..." }
+export const metadata = { title: "Creating document..." }
 
 const ALLOWED_TYPES: readonly DocumentType[] = CREATABLE_TYPES
 
@@ -35,7 +35,9 @@ export default async function CreateDocumentAction(props: {
   if (kind.isLineItemDoc) {
     initialContent = {
       lineItems: [{ description: "", qty: 1, rate: 0 }],
-      notes: "",
+      // Seeded from settings so standard wording is not retyped every time;
+      // still editable on the document itself.
+      notes: businessProfile?.defaultInvoiceNote ?? "",
     } satisfies InvoiceContent
   } else {
     initialContent = {

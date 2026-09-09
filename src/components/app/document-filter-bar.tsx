@@ -1,7 +1,7 @@
 import Link from "next/link"
 
 import { cn } from "@/lib/utils"
-import { DOCUMENT_FILTERS, type FilterKey } from "@/lib/document-filters"
+import { DEFAULT_FILTER, DOCUMENT_FILTERS, type FilterKey } from "@/lib/document-filters"
 
 /**
  * Filter state lives in the URL rather than component state, so a filtered
@@ -21,8 +21,8 @@ export function DocumentFilterBar({
         return (
           <Link
             key={key}
-            // "all" is the default, so it drops the param instead of adding ?filter=all
-            href={key === "all" ? "/dashboard/documents" : `/dashboard/documents?filter=${key}`}
+            // The default view drops the param rather than spelling itself out.
+            href={key === DEFAULT_FILTER ? "/dashboard/documents" : `/dashboard/documents?filter=${key}`}
             aria-current={isActive ? "page" : undefined}
             className={cn(
               "inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm transition-colors",

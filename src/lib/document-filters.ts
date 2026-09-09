@@ -13,6 +13,7 @@ import { paymentSummary } from "./money"
  * payment on file wins over the due date).
  */
 export type FilterKey =
+  | "active"
   | "all"
   | "drafts"
   | "quotes"
@@ -21,8 +22,12 @@ export type FilterKey =
   | "outstanding"
   | "paid"
   | "overdue"
+  | "void"
 
 export const DOCUMENT_FILTERS: { key: FilterKey; label: string }[] = [
+  // Default view: everything still needing action. Settled and cancelled
+  // documents are noise here - they are one click away under All / Void.
+  { key: "active", label: "Needs attention" },
   { key: "all", label: "All" },
   { key: "drafts", label: "Drafts" },
   { key: "quotes", label: "Quotations" },
@@ -31,6 +36,8 @@ export const DOCUMENT_FILTERS: { key: FilterKey; label: string }[] = [
   { key: "outstanding", label: "Outstanding" },
   { key: "paid", label: "Paid" },
   { key: "overdue", label: "Overdue" },
+  // Void is opt-in: cancelled documents only appear when explicitly asked for.
+  { key: "void", label: "Void" },
 ]
 
 /** Minimum shape a row needs to be filtered - Decimals converted to numbers. */
@@ -45,14 +52,47 @@ export type FilterableDoc = {
 }
 
 /** Narrows an untrusted ?filter= value; anything unknown falls back to "all". */
+/** The view shown when no filter is chosen. */
+export const DEFAULT_FILTER: FilterKey = "active"
+
+/** Narrows an untrusted ?filter= value; anything unknown falls back to the default. */
 export function parseFilter(value: string | undefined): FilterKey {
   const match = DOCUMENT_FILTERS.find((f) => f.key === value)
-  return match ? match.key : "all"
+  return match ? match.key : DEFAULT_FILTER
+}
+
+/** Money still owed on an issued invoice, in minor units. */
+function outstandingBalanceMinor(doc: FilterableDoc): number {
+  return paymentSummary(
+    doc.totalAmount,
+    doc.amountPaid,
+    doc.dueDate,
+    false,
+    doc.currency,
+    doc.advanceReceived
+  ).balanceMinor
 }
 
 export function matchesFilter(doc: FilterableDoc, key: FilterKey): boolean {
+  // "all" still means all, including void - it is the escape hatch.
   if (key === "all") return true
+  if (key === "void") return doc.status === "VOID"
   if (key === "drafts") return doc.status === "DRAFT"
+
+  if (key === "active") {
+    // Cancelled documents are never outstanding work.
+    if (doc.status === "VOID") return false
+    // Not yet issued, so still on your plate.
+    if (doc.status === "DRAFT") return true
+    // Terminal states: a signed contract or an archived document is finished.
+    if (doc.status === "SIGNED" || doc.status === "ARCHIVED") return false
+    // Quotes, proformas and unsigned contracts have no payment ledger, so
+    // being issued and not yet terminal is itself the outstanding state
+    // (awaiting acceptance or signature).
+    if (doc.type !== "INVOICE") return true
+    // An issued invoice drops out only once it is fully paid.
+    return outstandingBalanceMinor(doc) > 0
+  }
 
   // Type filters, not money views - a quote counts as a quote whether it is
   // still a draft, issued, or already converted.
