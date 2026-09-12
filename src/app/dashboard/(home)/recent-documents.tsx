@@ -13,11 +13,27 @@ import { documentKind } from "@/lib/document-kinds"
 export default async function RecentDocuments() {
   const user = await getCurrentUser()
 
+  // Same reason as the documents list: the content JSON is the bulk of each
+  // row and nothing here reads it.
   const recentDocs = await prisma.document.findMany({
     where: { userId: user.id },
     take: 8,
     orderBy: { createdAt: "desc" },
-    include: { client: true },
+    select: {
+      id: true,
+      refNumber: true,
+      title: true,
+      type: true,
+      status: true,
+      createdAt: true,
+      // The payment badge derives from these, so they are part of the row.
+      totalAmount: true,
+      amountPaid: true,
+      advanceReceived: true,
+      dueDate: true,
+      currency: true,
+      client: { select: { businessName: true, fullName: true } },
+    },
   })
 
   return (

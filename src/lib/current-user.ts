@@ -55,12 +55,18 @@ async function rejectSession(
 export const getCurrentUser = cache(async (): Promise<User> => {
   const cookieStore = await cookies()
   const supabase = createClient(cookieStore)
-  const { data } = await supabase.auth.getUser()
+
+  // Locally verified claims rather than getUser(): see the note in
+  // src/utils/supabase/middleware.ts. The signature check is the same one the
+  // auth server would perform, so this is not "trusting the cookie" - it just
+  // does not pay a second network round trip to repeat what the proxy already
+  // established microseconds earlier.
+  const { data } = await supabase.auth.getClaims()
 
   // Supabase treats addresses case-insensitively, so compare normalized - a
   // stray capital or trailing space would otherwise lock someone out of their
   // own account with a confusing "not authorized" error.
-  const email = data.user?.email?.toLowerCase().trim()
+  const email = (data?.claims?.email as string | undefined)?.toLowerCase().trim()
   if (!email) redirect("/login")
 
   const bootstrapEmail = bootstrapAdminEmail()
