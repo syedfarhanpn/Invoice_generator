@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import prisma from "@/lib/db"
 import { redirect } from "next/navigation"
+import { revalidatePath } from "next/cache"
 import { getCurrentUser } from "@/lib/current-user"
 import { LogoUploader } from "./logo-uploader"
 import { DocumentAppearance } from "./document-appearance"
@@ -76,6 +77,14 @@ export default async function SettingsPage(props: {
       update: data,
       create: { ...data, userId },
     })
+
+    // Everything under /dashboard, because the profile is not confined to this
+    // page: the paper colour and typeface restyle every document, the default
+    // note pre-fills new ones, and the currency feeds the dashboard totals.
+    // Without this the browser keeps serving the pages it already had (see the
+    // staleTimes note in next.config.ts) and the save looks like it did
+    // nothing.
+    revalidatePath("/dashboard", "layout")
 
     redirect("/dashboard/settings/business")
   }
