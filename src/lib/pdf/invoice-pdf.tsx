@@ -11,6 +11,7 @@ import type { DocumentType, TaxMode } from "@prisma/client"
 
 import { currencyDecimals } from "@/lib/currencies"
 import { documentKind } from "@/lib/document-kinds"
+import { formatDocumentDate as formatDate } from "@/lib/dates"
 import { computeTotals, formatMoney, lineAmount } from "@/lib/money"
 import {
   documentFontPdf,
@@ -181,15 +182,6 @@ export type InvoicePdfProps = {
   appearance?: DocumentAppearanceSettings | null
   /** Overrides the configured font. */
   fontFamily?: PdfFontFamily
-}
-
-/** Fixed format so the PDF never depends on the server's locale. */
-function formatDate(value: Date | null): string {
-  if (!value) return "-"
-  // The on-screen document uses toLocaleDateString(), which on this app
-  // renders M/D/YYYY. Pinned to en-US here so the PDF matches it exactly
-  // rather than varying with the server locale.
-  return new Intl.DateTimeFormat("en-US", { timeZone: "UTC" }).format(value)
 }
 
 export function InvoicePdf(props: InvoicePdfProps) {

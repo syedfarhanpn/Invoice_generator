@@ -2,6 +2,7 @@ import path from "node:path"
 import { Document as PdfDocument, Font, Page, StyleSheet, Text, View } from "@react-pdf/renderer"
 
 import { currencyDecimals } from "@/lib/currencies"
+import { formatDocumentDate as formatDate } from "@/lib/dates"
 import { formatMoney } from "@/lib/money"
 import {
   documentFontPdf,
@@ -116,11 +117,6 @@ export type ReceiptPdfProps = {
   /** Live paper and typeface - see @/lib/document-theme. */
   appearance?: DocumentAppearanceSettings | null
   fontFamily?: PdfFontFamily
-}
-
-function formatDate(value: Date): string {
-  // Matches the invoice, which mirrors what the on-screen document renders.
-  return new Intl.DateTimeFormat("en-US", { timeZone: "UTC" }).format(value)
 }
 
 export function ReceiptPdf(props: ReceiptPdfProps) {

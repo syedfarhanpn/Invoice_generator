@@ -2,6 +2,7 @@
 
 import type { ContractContent } from "@/lib/types"
 import { formatMoney } from "@/lib/money"
+import { formatDocumentDate, formatDocumentDateTime } from "@/lib/dates"
 import { DocumentSurface, SIGNATURE_PANEL_STYLE } from "@/components/app/document-surface"
 import type { DocumentAppearanceSettings } from "@/lib/document-theme"
 
@@ -71,7 +72,7 @@ export default function ContractPreview({
         </div>
         <h1 className="text-3xl font-extrabold tracking-tight">{title || "Service Agreement"}</h1>
         <div className="text-sm text-muted-foreground mt-2">
-          {issueDate ? `Effective ${new Date(issueDate).toLocaleDateString()}` : "Effective date not set"}
+          {issueDate ? `Effective ${formatDocumentDate(issueDate)}` : "Effective date not set"}
         </div>
       </div>
 
@@ -154,7 +155,7 @@ export default function ContractPreview({
           </div>
           {signature && (
             <div className="text-[10px] text-muted-foreground mt-1">
-              Signed {new Date(signature.signedAt).toLocaleString()}
+              Signed {formatDocumentDateTime(signature.signedAt)}
             </div>
           )}
         </div>

@@ -1,6 +1,11 @@
 import { Skeleton } from "@/components/ui/skeleton"
 import { PageHeaderSkeleton, TableSkeleton } from "@/components/app/skeletons"
 
+/**
+ * In a route group so it covers /dashboard/documents alone - otherwise this
+ * list skeleton is also what the router prefetches for the editor at
+ * /documents/[id] and for /documents/new. See (home)/loading.tsx.
+ */
 export default function Loading() {
   return (
     <div className="space-y-6">

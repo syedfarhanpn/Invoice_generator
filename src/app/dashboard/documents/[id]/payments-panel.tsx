@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/dialog"
 import { Plus, Trash2, Receipt } from "lucide-react"
 import { recordPayment, deletePayment } from "./actions"
+import { formatDocumentDate } from "@/lib/dates"
 import { formatMoney, paymentSummary } from "@/lib/money"
 
 export type PaymentRow = {
@@ -145,7 +146,7 @@ export default function PaymentsPanel({
               <div className="min-w-0">
                 <div>
                   <span className="font-medium">{formatMoney(p.amount, currency)}</span>
-                  <span className="text-muted-foreground ml-2">{new Date(p.paidOn).toLocaleDateString()}</span>
+                  <span className="text-muted-foreground ml-2">{formatDocumentDate(p.paidOn)}</span>
                   {p.method && <span className="text-muted-foreground ml-2">via {p.method}</span>}
                 </div>
                 {p.receiptNumber && (

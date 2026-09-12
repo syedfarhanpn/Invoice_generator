@@ -2,6 +2,16 @@ import { Card } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatsSkeleton, TableSkeleton } from "@/components/app/skeletons"
 
+/**
+ * In a route group so it covers /dashboard alone.
+ *
+ * A loading.tsx wraps its own page *and* every segment below it, and the
+ * router prefetches the topmost one it finds. One level up, this file was the
+ * fallback the router had cached for Documents, Clients and Settings too, so
+ * clicking any of them flashed the dashboard's stat cards before the real
+ * skeleton appeared. The group changes no URL; it just stops the boundary
+ * reaching the siblings.
+ */
 export default function Loading() {
   return (
     <div className="space-y-6">

@@ -2,6 +2,11 @@ import { Card } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { TableSkeleton } from "@/components/app/skeletons"
 
+/**
+ * In a route group so it covers /dashboard/clients/[id] alone - otherwise
+ * this detail skeleton is also what the router prefetches for the edit form
+ * below it. See (home)/loading.tsx.
+ */
 export default function Loading() {
   return (
     <div className="space-y-6">

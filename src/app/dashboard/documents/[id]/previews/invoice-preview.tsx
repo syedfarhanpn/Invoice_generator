@@ -7,6 +7,7 @@ import type { DocumentType } from "@prisma/client"
 import type { InvoiceContent, InvoiceLineItem } from "@/lib/types"
 import { documentKind } from "@/lib/document-kinds"
 import { computeTotals, formatMoney, lineAmount } from "@/lib/money"
+import { formatDocumentDate } from "@/lib/dates"
 
 type PreviewIssuer = {
   businessName: string
@@ -171,11 +172,11 @@ export default function InvoicePreview({
         <div className="flex gap-16 mb-12">
           <div className="space-y-1">
             <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Issue Date</div>
-            <div className="font-medium">{issueDate ? new Date(issueDate).toLocaleDateString() : "-"}</div>
+            <div className="font-medium">{formatDocumentDate(issueDate)}</div>
           </div>
           <div className="space-y-1">
             <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{kind.dateLabel}</div>
-            <div className="font-medium">{dueDate ? new Date(dueDate).toLocaleDateString() : "-"}</div>
+            <div className="font-medium">{formatDocumentDate(dueDate)}</div>
           </div>
           <div className="space-y-1">
             <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Title</div>

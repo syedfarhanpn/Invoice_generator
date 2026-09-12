@@ -5,7 +5,7 @@ import Link from "next/link"
 import prisma from "@/lib/db"
 import { notFound } from "next/navigation"
 import { getCurrentUser } from "@/lib/current-user"
-import { archiveClient } from "../actions"
+import { archiveClient } from "../../actions"
 import { LifecycleBadge, PaymentBadge } from "@/components/app/status-badge"
 import { formatMoney } from "@/lib/money"
 

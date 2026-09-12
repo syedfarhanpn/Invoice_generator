@@ -21,6 +21,7 @@ import ContractPreview from "./previews/contract-preview"
 import SharePanel from "./share-panel"
 import { ClientPicker } from "@/components/app/client-picker"
 import { CURRENCIES } from "@/lib/currencies"
+import { formatDocumentDateTime } from "@/lib/dates"
 import type { ContractContent, ContractClause, SignaturePayload } from "@/lib/types"
 
 export default function ContractEditor({
@@ -270,7 +271,7 @@ export default function ContractEditor({
                     <Badge>Signed</Badge>
                     <div className="text-muted-foreground">
                       {signature.method === "typed" ? signature.typedName : "Drawn signature"} on{" "}
-                      {new Date(signature.signedAt).toLocaleString()}
+                      {formatDocumentDateTime(signature.signedAt)}
                     </div>
                   </div>
                 ) : (
