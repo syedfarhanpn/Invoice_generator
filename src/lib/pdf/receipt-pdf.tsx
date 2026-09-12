@@ -3,6 +3,12 @@ import { Document as PdfDocument, Font, Page, StyleSheet, Text, View } from "@re
 
 import { currencyDecimals } from "@/lib/currencies"
 import { formatMoney } from "@/lib/money"
+import {
+  documentFontPdf,
+  documentPalette,
+  type DocumentAppearanceSettings,
+  type DocumentPalette,
+} from "@/lib/document-theme"
 import type { ClientSnapshot, IssuerSnapshot } from "@/lib/types"
 import type { PdfFontFamily } from "./invoice-pdf"
 
@@ -30,15 +36,13 @@ Font.register({
   ],
 })
 
-const INK = "#0a0a0a"
-const MUTED = "#737373"
-const RULE = "#f5f5f5"
-const BAND_BG = "#fdfdfd"
-const BAND_BORDER = "#f9f9f9"
 const PAD = 35.72
 
-const styles = StyleSheet.create({
-  page: { fontSize: 11.91, color: INK, backgroundColor: "#ffffff", paddingBottom: 120 },
+// Same paper and ink as the invoice this receipt belongs to; see
+// src/lib/document-theme.ts.
+function buildStyles(p: DocumentPalette) {
+  return StyleSheet.create({
+  page: { fontSize: 11.91, color: p.ink, backgroundColor: p.paper, paddingBottom: 120 },
 
   header: { paddingHorizontal: PAD, paddingTop: 26, paddingBottom: 23.81, color: "#ffffff" },
   headerRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end" },
@@ -47,12 +51,12 @@ const styles = StyleSheet.create({
   refValue: { fontSize: 14.88, fontWeight: 700, letterSpacing: 0.74, marginTop: 3, textAlign: "right" },
 
   body: { paddingHorizontal: PAD, paddingTop: PAD },
-  label: { fontSize: 7.44, fontWeight: 700, letterSpacing: 0.74, color: MUTED, textTransform: "uppercase" },
+  label: { fontSize: 7.44, fontWeight: 700, letterSpacing: 0.74, color: p.muted, textTransform: "uppercase" },
 
   partyRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 40 },
   party: { width: 235.87 },
-  partyName: { fontSize: 13.39, fontWeight: 700, color: INK, marginTop: 4, marginBottom: 2 },
-  partyLine: { fontSize: 10.42, color: MUTED, lineHeight: 1.43 },
+  partyName: { fontSize: 13.39, fontWeight: 700, color: p.ink, marginTop: 4, marginBottom: 2 },
+  partyLine: { fontSize: 10.42, color: p.muted, lineHeight: 1.43 },
 
   // The amount is the point of the document, so it gets its own block.
   amountBox: {
@@ -60,28 +64,39 @@ const styles = StyleSheet.create({
     marginBottom: 28,
     paddingVertical: 20,
     paddingHorizontal: 24,
-    backgroundColor: BAND_BG,
+    backgroundColor: p.bandBg,
     borderWidth: 0.75,
-    borderColor: RULE,
+    borderColor: p.headBorder,
   },
-  amountLabel: { fontSize: 7.44, fontWeight: 700, letterSpacing: 0.74, color: MUTED, textTransform: "uppercase" },
-  amountValue: { fontSize: 28, fontWeight: 700, color: INK, marginTop: 6 },
-  amountWords: { fontSize: 10.42, color: MUTED, marginTop: 6 },
+  amountLabel: { fontSize: 7.44, fontWeight: 700, letterSpacing: 0.74, color: p.muted, textTransform: "uppercase" },
+  amountValue: { fontSize: 28, fontWeight: 700, color: p.ink, marginTop: 6 },
+  amountWords: { fontSize: 10.42, color: p.muted, marginTop: 6 },
 
-  detailRow: { flexDirection: "row", borderBottomWidth: 0.75, borderBottomColor: RULE, paddingVertical: 9 },
-  detailKey: { width: 150, fontSize: 10.42, color: MUTED },
-  detailVal: { flex: 1, fontSize: 11.91, color: INK, fontWeight: 500 },
+  detailRow: { flexDirection: "row", borderBottomWidth: 0.75, borderBottomColor: p.headBorder, paddingVertical: 9 },
+  detailKey: { width: 150, fontSize: 10.42, color: p.muted },
+  detailVal: { flex: 1, fontSize: 11.91, color: p.ink, fontWeight: 500 },
 
-  balanceNote: { marginTop: 22, fontSize: 10.42, color: MUTED, lineHeight: 1.5 },
+  balanceNote: { marginTop: 22, fontSize: 10.42, color: p.muted, lineHeight: 1.5 },
 
   footer: {
     position: "absolute", bottom: 0, left: 0, right: 0,
     paddingHorizontal: PAD, paddingTop: 20, paddingBottom: 26,
-    borderTopWidth: 0.6, borderTopColor: BAND_BORDER, backgroundColor: BAND_BG,
+    borderTopWidth: 0.6, borderTopColor: p.bandBorder, backgroundColor: p.bandBg,
   },
-  footerNote: { fontSize: 9.5, color: MUTED, lineHeight: 1.5 },
-  pageNo: { position: "absolute", bottom: 6, right: PAD, fontSize: 7, color: "#b3b3b3" },
-})
+  footerNote: { fontSize: 9.5, color: p.muted, lineHeight: 1.5 },
+    pageNo: { position: "absolute", bottom: 6, right: PAD, fontSize: 7, color: p.pageNumber },
+  })
+}
+
+const sheetCache = new Map<string, ReturnType<typeof buildStyles>>()
+function stylesFor(p: DocumentPalette) {
+  let sheet = sheetCache.get(p.paper)
+  if (!sheet) {
+    sheet = buildStyles(p)
+    sheetCache.set(p.paper, sheet)
+  }
+  return sheet
+}
 
 export type ReceiptPdfProps = {
   receiptNumber: string | null
@@ -98,6 +113,8 @@ export type ReceiptPdfProps = {
   totalReceived: number
   issuer: IssuerSnapshot | null
   client: ClientSnapshot | null
+  /** Live paper and typeface - see @/lib/document-theme. */
+  appearance?: DocumentAppearanceSettings | null
   fontFamily?: PdfFontFamily
 }
 
@@ -109,9 +126,12 @@ function formatDate(value: Date): string {
 export function ReceiptPdf(props: ReceiptPdfProps) {
   const {
     receiptNumber, paidOn, amount, method, reference, note, currency,
-    invoiceRef, invoiceTotal, totalReceived, issuer, client,
-    fontFamily = "Tinos",
+    invoiceRef, invoiceTotal, totalReceived, issuer, client, appearance,
   } = props
+
+  const palette = documentPalette(appearance?.paperColor)
+  const styles = stylesFor(palette)
+  const fontFamily = props.fontFamily ?? documentFontPdf(appearance?.documentFont)
 
   const factor = 10 ** currencyDecimals(currency)
   const balanceMinor = Math.max(

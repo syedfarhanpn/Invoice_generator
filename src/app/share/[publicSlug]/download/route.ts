@@ -70,6 +70,9 @@ export async function GET(
       content,
       issuer,
       client,
+      // Appearance is read live, not from the snapshot: changing the paper or
+      // typeface restyles every document, including ones already sent.
+      appearance: businessProfile,
     })
   )
 

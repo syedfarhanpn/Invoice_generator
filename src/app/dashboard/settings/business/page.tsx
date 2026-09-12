@@ -7,11 +7,13 @@ import prisma from "@/lib/db"
 import { redirect } from "next/navigation"
 import { getCurrentUser } from "@/lib/current-user"
 import { LogoUploader } from "./logo-uploader"
+import { DocumentAppearance } from "./document-appearance"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { CURRENCIES } from "@/lib/currencies"
 import { maskApiKey } from "@/lib/api-key"
 import { MIN_PASSWORD_LENGTH } from "@/lib/password"
+import { parseDocumentFont, parsePaperColor } from "@/lib/document-theme"
 import { SubmitButton } from "@/app/login/submit-button"
 import { ThemeSelect } from "@/components/app/theme-select"
 import { KeyManager, RevokeButton } from "../api-keys/key-manager"
@@ -63,6 +65,10 @@ export default async function SettingsPage(props: {
       defaultInvoiceNote: (formData.get("defaultInvoiceNote") as string)?.trim() || null,
       defaultPaymentTermDays: paymentTermRaw ? parseInt(paymentTermRaw, 10) : null,
       signatureName: (formData.get("signatureName") as string) || null,
+      // Both reach inline styles and the PDF, so they are validated rather
+      // than stored as whatever the form posted.
+      paperColor: parsePaperColor(formData.get("paperColor")),
+      documentFont: parseDocumentFont(formData.get("documentFont")),
     }
 
     await prisma.businessProfile.upsert({
@@ -235,6 +241,22 @@ export default async function SettingsPage(props: {
 
           <Card>
             <CardHeader>
+              <CardTitle>Document Appearance</CardTitle>
+              <CardDescription>
+                How every invoice, quotation and contract is printed - on screen, in the PDF,
+                and on the page your client opens.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <DocumentAppearance
+                paperColor={profile?.paperColor ?? null}
+                documentFont={profile?.documentFont ?? null}
+              />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
               <CardTitle>Contract Signature</CardTitle>
               <CardDescription>Shown as your counter-signature on contracts.</CardDescription>
             </CardHeader>
@@ -259,8 +281,8 @@ export default async function SettingsPage(props: {
         <CardHeader>
           <CardTitle>Appearance</CardTitle>
           <CardDescription>
-            Remembered in this browser. Documents you share with clients always print on
-            white, whatever you pick here.
+            Light or dark for this app, remembered in this browser. It does not affect your
+            documents - those follow Document Appearance above.
           </CardDescription>
         </CardHeader>
         <CardContent>

@@ -2,6 +2,8 @@
 
 import type { ContractContent } from "@/lib/types"
 import { formatMoney } from "@/lib/money"
+import { DocumentSurface, SIGNATURE_PANEL_STYLE } from "@/components/app/document-surface"
+import type { DocumentAppearanceSettings } from "@/lib/document-theme"
 
 type PreviewIssuer = {
   businessName: string
@@ -35,6 +37,7 @@ export default function ContractPreview({
   issuer,
   client,
   signature,
+  appearance,
 }: {
   refNumber: string | null
   isDraft: boolean
@@ -45,9 +48,15 @@ export default function ContractPreview({
   issuer: PreviewIssuer | null
   client: PreviewClient | null | undefined
   signature?: SignaturePayload | null
+  /** Live paper and typeface - see @/lib/document-theme. */
+  appearance?: DocumentAppearanceSettings | null
 }) {
   return (
-    <div className="w-full h-full bg-background text-foreground flex flex-col font-sans relative">
+    <DocumentSurface
+      paper={appearance?.paperColor}
+      font={appearance?.documentFont}
+      className="w-full h-full flex flex-col relative"
+    >
       {isDraft && (
         <div className="absolute inset-0 pointer-events-none flex items-center justify-center z-20 overflow-hidden">
           <span className="text-[10rem] font-black text-muted-foreground/10 -rotate-12 select-none whitespace-nowrap">
@@ -113,11 +122,14 @@ export default function ContractPreview({
           <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">
             {issuer?.businessName || "Provider"}
           </div>
-          <div className="h-16 flex items-end">
+          <div
+            className="h-16 flex items-end rounded-md border px-3 py-2"
+            style={SIGNATURE_PANEL_STYLE}
+          >
             {issuer?.signatureName ? (
               <span className="font-serif italic text-xl">{issuer.signatureName}</span>
             ) : (
-              <span className="text-muted-foreground text-xs">Not yet counter-signed</span>
+              <span className="text-xs opacity-45">Not yet counter-signed</span>
             )}
           </div>
         </div>
@@ -125,7 +137,10 @@ export default function ContractPreview({
           <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">
             {client?.businessName || client?.fullName || "Client"}
           </div>
-          <div className="h-16 flex items-end">
+          <div
+            className="h-16 flex items-end rounded-md border px-3 py-2"
+            style={SIGNATURE_PANEL_STYLE}
+          >
             {signature ? (
               signature.method === "drawn" && signature.drawnDataUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -134,7 +149,7 @@ export default function ContractPreview({
                 <span className="font-serif italic text-xl">{signature.typedName}</span>
               )
             ) : (
-              <span className="text-muted-foreground text-xs">Awaiting signature</span>
+              <span className="text-xs opacity-45">Awaiting signature</span>
             )}
           </div>
           {signature && (
@@ -144,6 +159,6 @@ export default function ContractPreview({
           )}
         </div>
       </div>
-    </div>
+    </DocumentSurface>
   )
 }

@@ -65,6 +65,7 @@ export async function GET(
       totalReceived: Number(document.amountPaid) + Number(document.advanceReceived),
       issuer,
       client,
+      appearance: businessProfile,
     })
   )
 

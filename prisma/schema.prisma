@@ -144,6 +144,13 @@ model BusinessProfile {
   // standard wording is not retyped each time. Editable per document.
   defaultInvoiceNote     String?
 
+  // How generated documents look: the paper they print on and the typeface
+  // they are set in. Both are snapshotted onto a document at finalize time,
+  // so changing them later never restyles an invoice already sent.
+  // See src/lib/document-theme.ts for the derived palette.
+  paperColor         String?  @default("#ffffff")
+  documentFont       String?  @default("serif")
+
   // Signature shown on contracts as the issuer's counter-signature.
   signatureName      String?
   signatureImageUrl  String?

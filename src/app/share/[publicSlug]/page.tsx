@@ -90,6 +90,7 @@ export default async function SharedDocumentPage(props: { params: Promise<{ publ
             content={content as InvoiceContent}
             issuer={issuer}
             client={client}
+            appearance={businessProfile}
           />
         ) : (
           <ContractPreview
@@ -102,6 +103,7 @@ export default async function SharedDocumentPage(props: { params: Promise<{ publ
             issuer={issuer ? { ...issuer, signatureName: businessProfile?.signatureName } : null}
             client={client}
             signature={document.signatureData as unknown as SignaturePayload | null}
+            appearance={businessProfile}
           />
         )}
       </div>

@@ -43,6 +43,7 @@ export default async function SignContractPage(props: { params: Promise<{ public
             issuer={issuer}
             client={client}
             signature={null}
+            appearance={businessProfile}
           />
         </div>
 

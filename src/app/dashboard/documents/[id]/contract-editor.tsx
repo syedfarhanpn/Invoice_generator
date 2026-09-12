@@ -309,6 +309,7 @@ export default function ContractEditor({
               issuer={businessProfile}
               client={selectedClient}
               signature={signature}
+              appearance={businessProfile}
             />
           </div>
         </DocumentPreviewPane>

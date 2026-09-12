@@ -1,6 +1,8 @@
 "use client"
 
 import { Separator } from "@/components/ui/separator"
+import { DocumentSurface } from "@/components/app/document-surface"
+import type { DocumentAppearanceSettings } from "@/lib/document-theme"
 import type { DocumentType } from "@prisma/client"
 import type { InvoiceContent, InvoiceLineItem } from "@/lib/types"
 import { documentKind } from "@/lib/document-kinds"
@@ -46,6 +48,8 @@ type InvoicePreviewProps = {
   content: InvoiceContent
   issuer: PreviewIssuer | null
   client: PreviewClient | null | undefined
+  /** Live paper and typeface - see @/lib/document-theme. */
+  appearance?: DocumentAppearanceSettings | null
 }
 
 export default function InvoicePreview({
@@ -63,6 +67,7 @@ export default function InvoicePreview({
   content,
   issuer,
   client,
+  appearance,
 }: InvoicePreviewProps) {
   const kind = documentKind(type)
   const lineItems: InvoiceLineItem[] = content?.lineItems || []
@@ -90,7 +95,11 @@ export default function InvoicePreview({
     : []
 
   return (
-    <div className="w-full min-h-[1000px] print:min-h-0 bg-background text-foreground flex flex-col font-sans relative">
+    <DocumentSurface
+      paper={appearance?.paperColor}
+      font={appearance?.documentFont}
+      className="w-full min-h-[1000px] print:min-h-0 flex flex-col relative"
+    >
       {isDraft && (
         <div className="absolute inset-0 pointer-events-none flex items-center justify-center z-20 overflow-hidden">
           <span className="text-[10rem] font-black text-muted-foreground/10 -rotate-12 select-none whitespace-nowrap">
@@ -293,6 +302,6 @@ export default function InvoicePreview({
           </div>
         </div>
       </div>
-    </div>
+    </DocumentSurface>
   )
 }

@@ -7,11 +7,10 @@ import { Button } from "@/components/ui/button"
 import { SaveButton } from "@/components/app/save-button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Card } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
-import { Trash2, Plus, CheckCircle2, Ban, Trash, FileOutput, ArrowUpRight, Eye } from "lucide-react"
+import { CheckCircle2, Ban, Trash, FileOutput, ArrowUpRight, Eye } from "lucide-react"
 import type { BusinessProfile, Client } from "@prisma/client"
 import { updateDocument, finalizeDocument, voidDocument, deleteDraftDocument, convertToInvoice } from "./actions"
 import InvoicePreview from "./previews/invoice-preview"
@@ -21,7 +20,8 @@ import { ClientPicker } from "@/components/app/client-picker"
 import { DocumentPreviewPane } from "@/components/app/document-preview-pane"
 import { cn } from "@/lib/utils"
 import { CURRENCIES } from "@/lib/currencies"
-import type { InvoiceContent, InvoiceLineItem } from "@/lib/types"
+import type { InvoiceContent } from "@/lib/types"
+import { LineItemsEditor, stripRowIds, withRowIds, type EditableLine } from "./line-items-editor"
 import { computeTotals, formatMoney } from "@/lib/money"
 import { documentKind } from "@/lib/document-kinds"
 import type { EditorDocument } from "./document-editor"
@@ -54,8 +54,11 @@ export default function InvoiceEditor({
   const [taxMode, setTaxMode] = useState<"NONE" | "PERCENTAGE">(document.taxMode)
   const [taxRate, setTaxRate] = useState(document.taxRate != null ? String(document.taxRate) : "")
   const [taxLabel, setTaxLabel] = useState(document.taxLabel || "Tax")
-  const [lineItems, setLineItems] = useState<InvoiceLineItem[]>(
-    initialContent.lineItems?.length ? initialContent.lineItems : [{ description: "", qty: 1, rate: 0 }]
+  // Row ids exist only in the browser, for reordering. stripRowIds() removes
+  // them before anything is saved or previewed, so the stored content shape is
+  // unchanged.
+  const [lineItems, setLineItems] = useState<EditableLine[]>(() =>
+    withRowIds(initialContent.lineItems)
   )
   const [notes, setNotes] = useState(initialContent.notes || "")
   const [advanceReceived, setAdvanceReceived] = useState(
@@ -79,20 +82,12 @@ export default function InvoiceEditor({
   const advanceAmount = kind.supportsAdvance ? Math.max(0, parseFloat(advanceReceived) || 0) : 0
   const advanceMinor = Math.round(advanceAmount * 100)
 
-  const totals = useMemo(
-    () => computeTotals(lineItems, currency, taxMode, taxMode === "PERCENTAGE" ? parseFloat(taxRate) || 0 : 0),
-    [lineItems, currency, taxMode, taxRate]
-  )
+  const savedLineItems = useMemo(() => stripRowIds(lineItems), [lineItems])
 
-  function updateLine(index: number, patch: Partial<InvoiceLineItem>) {
-    setLineItems((prev) => prev.map((li, i) => (i === index ? { ...li, ...patch } : li)))
-  }
-  function addLine() {
-    setLineItems((prev) => [...prev, { description: "", qty: 1, rate: 0 }])
-  }
-  function removeLine(index: number) {
-    setLineItems((prev) => prev.filter((_, i) => i !== index))
-  }
+  const totals = useMemo(
+    () => computeTotals(savedLineItems, currency, taxMode, taxMode === "PERCENTAGE" ? parseFloat(taxRate) || 0 : 0),
+    [savedLineItems, currency, taxMode, taxRate]
+  )
 
   async function handleSave() {
     setIsSaving(true)
@@ -107,7 +102,7 @@ export default function InvoiceEditor({
         taxMode,
         taxRate: taxMode === "PERCENTAGE" ? parseFloat(taxRate) || 0 : null,
         taxLabel: taxMode === "PERCENTAGE" ? taxLabel : null,
-        content: { lineItems, notes },
+        content: { lineItems: savedLineItems, notes },
         advanceReceived: kind.supportsAdvance ? parseFloat(advanceReceived) || 0 : 0,
       })
       router.refresh()
@@ -328,73 +323,12 @@ export default function InvoiceEditor({
           <div className="space-y-4">
             <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Line Items</h3>
 
-            {lineItems.map((item, index) => (
-              <Card key={index} className="p-3 relative">
-                {isDraft && (
-                  // Inside the card bounds: Card is overflow-hidden, so a
-                  // negatively-offset button was clipped to a sliver. Always
-                  // visible rather than hover-only - hover never fires on touch.
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={`Remove line item ${index + 1}`}
-                    title="Remove this line"
-                    className="absolute top-1 right-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                    onClick={() => removeLine(index)}
-                  >
-                    <Trash2 className="size-4" />
-                  </Button>
-                )}
-                <div className="space-y-3">
-                  <div className="space-y-1">
-                    <Label className="text-xs">Description</Label>
-                    <Input
-                      value={item.description}
-                      onChange={(e) => updateLine(index, { description: e.target.value })}
-                      disabled={!isDraft}
-                      className="h-8 text-sm"
-                    />
-                  </div>
-                  <div className="grid grid-cols-3 gap-3 items-end">
-                    <div className="space-y-1">
-                      <Label className="text-xs">Qty</Label>
-                      <Input
-                        type="number"
-                        value={item.qty}
-                        onChange={(e) => updateLine(index, { qty: parseFloat(e.target.value) || 0 })}
-                        // Without this, typing into a field showing 0 appends
-                        // ("07") instead of replacing it.
-                        onFocus={(e) => e.target.select()}
-                        disabled={!isDraft}
-                        className="h-8 text-sm"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">Rate</Label>
-                      <Input
-                        type="number"
-                        step="0.01"
-                        value={item.rate}
-                        onChange={(e) => updateLine(index, { rate: parseFloat(e.target.value) || 0 })}
-                        onFocus={(e) => e.target.select()}
-                        disabled={!isDraft}
-                        className="h-8 text-sm"
-                      />
-                    </div>
-                    <div className="text-sm text-right font-medium pb-1.5">
-                      {formatMoney((item.qty || 0) * (item.rate || 0), currency)}
-                    </div>
-                  </div>
-                </div>
-              </Card>
-            ))}
-
-            {isDraft && (
-              <Button type="button" variant="outline" className="w-full text-xs" onClick={addLine}>
-                <Plus className="w-3 h-3 mr-2" /> Add Item
-              </Button>
-            )}
+            <LineItemsEditor
+              items={lineItems}
+              currency={currency}
+              isDraft={isDraft}
+              onChange={setLineItems}
+            />
 
             <div className="flex justify-end text-sm pt-2 space-y-1 flex-col items-end">
               <div className="text-muted-foreground">Subtotal: {formatMoney(totals.subtotal, currency)}</div>
@@ -478,9 +412,10 @@ export default function InvoiceEditor({
               taxRate={taxMode === "PERCENTAGE" ? parseFloat(taxRate) || 0 : null}
               taxLabel={taxLabel}
               advanceReceived={advanceAmount}
-              content={{ lineItems, notes }}
+              content={{ lineItems: savedLineItems, notes }}
               issuer={businessProfile}
               client={selectedClient}
+              appearance={businessProfile}
             />
           </div>
         </DocumentPreviewPane>
