@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { formatDocumentDate, formatDocumentDateTime } from "./dates"
+import { formatDocumentDate, formatDocumentDateTime, formatShortDay } from "./dates"
 
 describe("formatDocumentDate", () => {
   it("formats a date the way the PDF does", () => {
@@ -66,5 +66,16 @@ describe("determinism", () => {
     // Not asserting they differ - on an en-US/UTC machine they agree. The
     // point is that `pinned` does not depend on what `ambient` happens to be.
     expect(typeof ambient).toBe("string")
+  })
+})
+
+describe("formatShortDay", () => {
+  it("formats a compact axis label in UTC", () => {
+    expect(formatShortDay("2026-09-06T00:00:00.000Z")).toBe("Sep 6")
+    expect(formatShortDay("2026-01-31T00:00:00.000Z")).toBe("Jan 31")
+  })
+
+  it("returns empty rather than Invalid Date", () => {
+    for (const bad of [null, undefined, "nope"]) expect(formatShortDay(bad)).toBe("")
   })
 })

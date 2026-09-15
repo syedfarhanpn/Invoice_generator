@@ -2,7 +2,7 @@ import Link from "next/link"
 import type { DocumentType } from "@prisma/client"
 import { Card } from "@/components/ui/card"
 import { CREATABLE_TYPES, documentKind } from "@/lib/document-kinds"
-import { FileText, FileClock, Receipt, FileSignature, UserPlus, Settings, ArrowRight } from "lucide-react"
+import { FileText, FileClock, Receipt, FileSignature, UserPlus, ArrowRight } from "lucide-react"
 
 type Action = {
   href: string
@@ -25,18 +25,26 @@ const TYPE_ICONS: Record<DocumentType, React.ComponentType<{ className?: string 
   CONTRACT: FileSignature,
 }
 
-// Derived from the shared type table, so adding a document type puts it here
-// automatically instead of leaving this list quietly out of date.
-const documentActions: Action[] = CREATABLE_TYPES.map((type) => {
-  const kind = documentKind(type)
-  return {
-    href: `/dashboard/documents/create?type=${type}`,
-    title: `New ${kind.label}`,
-    desc: kind.description,
-    icon: TYPE_ICONS[type],
-    prefetch: false as const,
+/**
+ * Shortcuts, not the full menu. Proforma is deliberately left out as the least
+ * reached-for type; every creatable type is still one click away on
+ * /dashboard/documents/new, which is generated from CREATABLE_TYPES.
+ *
+ * Still derived from the shared type table, so a new document type appears
+ * here automatically rather than leaving this list quietly out of date.
+ */
+const documentActions: Action[] = CREATABLE_TYPES.filter((type) => type !== "PROFORMA").map(
+  (type) => {
+    const kind = documentKind(type)
+    return {
+      href: `/dashboard/documents/create?type=${type}`,
+      title: `New ${kind.label}`,
+      desc: kind.description,
+      icon: TYPE_ICONS[type],
+      prefetch: false as const,
+    }
   }
-})
+)
 
 const actions: Action[] = [
   ...documentActions,
@@ -46,17 +54,12 @@ const actions: Action[] = [
     desc: "Register a client and its serial code.",
     icon: UserPlus,
   },
-  {
-    href: "/dashboard/settings/business",
-    title: "Business Settings",
-    desc: "Branding, currency, tax and payment details.",
-    icon: Settings,
-  },
 ]
 
 export function QuickActions() {
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+    // Four across on a wide screen so the row is even rather than 3 + 1.
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
       {actions.map(({ href, title, desc, icon: Icon, prefetch }) => (
         <Link key={href} href={href} prefetch={prefetch} className="group/action rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring">
           <Card className="h-full justify-between transition-colors hover:bg-muted/50 hover:ring-foreground/20">

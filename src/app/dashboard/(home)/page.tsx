@@ -2,15 +2,16 @@ import { Suspense } from "react"
 import Link from "next/link"
 import { buttonVariants } from "@/components/ui/button"
 import { QuickActions } from "@/components/app/quick-actions"
-import { StatsSkeleton, TableSkeleton } from "@/components/app/skeletons"
+import { ChartSkeleton, StatsSkeleton, TableSkeleton } from "@/components/app/skeletons"
 import InvoiceStats from "./invoice-stats"
 import RecentDocuments from "./recent-documents"
+import AnalyticsPanel from "./analytics-panel"
 
 export const metadata = { title: "Dashboard" }
 
 /**
  * Deliberately NOT async: the title and quick actions are static, so they
- * ship in the first chunk and navigation feels instant. The two
+ * ship in the first chunk and navigation feels instant. The three
  * database-backed sections stream in behind their own boundaries and do not
  * block each other.
  */
@@ -29,6 +30,10 @@ export default function DashboardPage() {
       </Suspense>
 
       <QuickActions />
+
+      <Suspense fallback={<ChartSkeleton />}>
+        <AnalyticsPanel />
+      </Suspense>
 
       <div className="mt-8">
         <h3 className="text-xl font-bold tracking-tight mb-4">Recent Documents</h3>

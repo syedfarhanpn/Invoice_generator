@@ -65,3 +65,18 @@ export function formatDocumentDateTime(
   const date = toDate(value)
   return date ? `${normalize(DATE_TIME.format(date))} UTC` : fallback
 }
+
+/**
+ * A compact axis label: "Sep 6". Pinned like the others so the server and the
+ * browser cannot disagree - see the note at the top of this file.
+ */
+const SHORT_DAY = new Intl.DateTimeFormat(LOCALE, {
+  timeZone: "UTC",
+  month: "short",
+  day: "numeric",
+})
+
+export function formatShortDay(value: Date | string | number | null | undefined): string {
+  const date = toDate(value)
+  return date ? normalize(SHORT_DAY.format(date)) : ""
+}

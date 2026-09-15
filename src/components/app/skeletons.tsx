@@ -100,3 +100,30 @@ export function StatsSkeleton({ cards = 4 }: { cards?: number }) {
     </div>
   )
 }
+
+/** Stands in for the invoice activity chart: header row, legend, plot, axis. */
+export function ChartSkeleton() {
+  return (
+    <Card>
+      <div className="flex items-center justify-between px-(--card-spacing)">
+        <div className="space-y-2">
+          <Skeleton className="h-5 w-32" />
+          <Skeleton className="h-3 w-48" />
+        </div>
+        <Skeleton className="h-8 w-56 rounded-lg" />
+      </div>
+      <div className="flex gap-6 px-(--card-spacing)">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div key={i} className="space-y-1.5">
+            <Skeleton className="h-3 w-16" />
+            <Skeleton className="h-5 w-24" />
+          </div>
+        ))}
+      </div>
+      <div className="flex gap-2 px-(--card-spacing)">
+        <Skeleton className="h-[180px] w-16" />
+        <Skeleton className="h-[180px] flex-1" />
+      </div>
+    </Card>
+  )
+}
