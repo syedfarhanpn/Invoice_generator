@@ -2,8 +2,8 @@ import { currencyDecimals } from "./currencies"
 import { paymentSummary } from "./money"
 
 /**
- * Period analytics for the dashboard: of the invoices issued in a window, how
- * much has been received, how much is still pending, and how much is overdue.
+ * Period analytics for the dashboard: how much was invoiced in a window, and of
+ * that, how much has been received, is still pending, or is overdue.
  *
  * Buckets are keyed by issue date in UTC. Two reasons it is not local time:
  * document dates are stored at midnight UTC (see src/lib/dates.ts), and the
@@ -33,6 +33,7 @@ export function parseRange(value: unknown): RangeKey {
 export type DayBucket = {
   /** YYYY-MM-DD, UTC. Stable across server and client. */
   date: string
+  invoicedMinor: number
   receivedMinor: number
   pendingMinor: number
   overdueMinor: number
@@ -118,7 +119,7 @@ export function buildSeries(
   const { start, end } = rangeBounds(key, now)
   const buckets = new Map<string, DayBucket>()
   for (const date of dayKeysBetween(start, end)) {
-    buckets.set(date, { date, receivedMinor: 0, pendingMinor: 0, overdueMinor: 0 })
+    buckets.set(date, { date, invoicedMinor: 0, receivedMinor: 0, pendingMinor: 0, overdueMinor: 0 })
   }
 
   const totals: RangeTotals = {
@@ -146,18 +147,23 @@ export function buildSeries(
     )
 
     // The balance is either overdue or merely pending - never both, or the
-    // stack would double-count it against the invoiced total.
+    // parts would add up to more than was invoiced.
     const overdueMinor = summary.isOverdue ? summary.balanceMinor : 0
     const pendingMinor = summary.isOverdue ? 0 : summary.balanceMinor
+    // Capped at the invoice total: an overpayment is not part of what was
+    // billed, and the chart draws invoiced as the envelope the other curves sit
+    // inside - an uncapped figure would poke out above it.
+    const receivedMinor = Math.min(summary.paidMinor, summary.totalMinor)
 
-    bucket.receivedMinor += summary.paidMinor
+    bucket.invoicedMinor += summary.totalMinor
+    bucket.receivedMinor += receivedMinor
     bucket.pendingMinor += pendingMinor
     bucket.overdueMinor += overdueMinor
 
-    totals.receivedMinor += summary.paidMinor
+    totals.invoicedMinor += summary.totalMinor
+    totals.receivedMinor += receivedMinor
     totals.pendingMinor += pendingMinor
     totals.overdueMinor += overdueMinor
-    totals.invoicedMinor += summary.totalMinor
     totals.invoiceCount += 1
   }
 
@@ -174,20 +180,4 @@ export function buildSeries(
 /** Minor units back to a major-unit number for formatMoney. */
 export function toMajor(minor: number, currency: string): number {
   return minor / 10 ** currencyDecimals(currency)
-}
-
-/**
- * A round number at or above `maxMinor`, for the top of the y-axis.
- *
- * Ticks have to land on values a reader recognises (0 / 5,000 / 10,000), so the
- * axis is snapped to 1, 2 or 5 times a power of ten rather than to the tallest
- * bar. Returns a positive value even for an empty window, so the chart still
- * draws an axis instead of dividing by zero.
- */
-export function niceAxisMax(maxMinor: number): number {
-  if (!(maxMinor > 0)) return 1
-  const magnitude = 10 ** Math.floor(Math.log10(maxMinor))
-  const normalized = maxMinor / magnitude
-  const step = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10
-  return step * magnitude
 }

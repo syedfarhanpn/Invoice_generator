@@ -1,51 +1,79 @@
 "use client"
 
-import { useState } from "react"
+import { useId, useMemo, useRef, useState } from "react"
 import { Table2, X } from "lucide-react"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { RANGES, toMajor, type DayBucket, type RangeKey, type RangeSeries } from "@/lib/analytics"
+import { monotoneAreaPath, monotoneLinePath, type Point } from "@/lib/chart-path"
 import { formatShortDay } from "@/lib/dates"
 import { formatMoney } from "@/lib/money"
-import { niceAxisMax, RANGES, toMajor, type RangeKey, type RangeSeries } from "@/lib/analytics"
 import { cn } from "@/lib/utils"
 
 /**
- * Invoice activity over a window, as a stacked column per day.
+ * Invoice activity over a window: what was invoiced each day, and of that,
+ * how much has been received and how much is overdue.
  *
- * Form: part-to-whole over time. Each day's column is the money invoiced that
- * day, split by what has become of it - so the three segments always sum to the
- * day's invoiced total and the stack can never out-run the amount billed.
+ * Invoiced is the envelope - received and overdue are parts of it, so neither
+ * curve can rise above it. It is the neutral area; the two parts are coloured
+ * curves inside it, using categorical slots 1 and 2 (blue, orange) rather than
+ * green and red. The palette validator put that green against that red at
+ * delta-E 4.1 under deuteranopia - below the floor even with labels - so for a
+ * common form of colour blindness the two lines would be one line.
  *
- * Colour is the status palette (good / warning / critical), not a categorical
- * one: these are states, not arbitrary series. Status colours are fixed rather
- * than themed, and the amber sits below 3:1 on a light card by design, so it
- * never carries meaning alone - every value is also printed in the legend row
- * and reachable in the table view.
+ * Curves are monotone (see src/lib/chart-path.ts), so the smoothing never
+ * draws money that is not there: no dip below zero beside an empty day, no
+ * crest above what was actually billed. The crosshair snaps to real days.
  *
- * Both windows are computed on the server and handed over together, so
- * switching is instant and costs no round trip.
+ * Both windows arrive precomputed from the server, so switching is instant.
  */
 
 const SERIES = [
-  { key: "receivedMinor", label: "Received", color: "var(--viz-received)" },
-  { key: "pendingMinor", label: "Pending", color: "var(--viz-pending)" },
-  { key: "overdueMinor", label: "Overdue", color: "var(--viz-overdue)" },
+  { key: "invoicedMinor", label: "Invoiced", color: "var(--viz-invoiced)", fillOpacity: 0.22, strokeWidth: 1.5 },
+  { key: "receivedMinor", label: "Received", color: "var(--viz-received)", fillOpacity: 0.16, strokeWidth: 2 },
+  { key: "overdueMinor", label: "Overdue", color: "var(--viz-overdue)", fillOpacity: 0.16, strokeWidth: 2 },
 ] as const
 
-/** Status palette - fixed in both themes; see references/palette.md. */
-const PALETTE = {
-  "--viz-received": "#0ca30c",
-  "--viz-pending": "#fab219",
-  "--viz-overdue": "#d03b3b",
-} as React.CSSProperties
+type SeriesKey = (typeof SERIES)[number]["key"]
 
-/** Plot height in px. Fixed so segment heights are exact, not percentage-rounded. */
-const PLOT_HEIGHT = 180
+/** Plot height in px. The date labels sit in their own band below it. */
+const PLOT_HEIGHT = 240
+/** Path coordinate space, stretched to the plot with preserveAspectRatio="none". */
+const VIEW_W = 1000
+const VIEW_H = PLOT_HEIGHT
+/** Room above the tallest day, so a crest never touches the top gridline. */
+const HEADROOM = 1.15
+const GRID = [0, 0.25, 0.5, 0.75, 1]
+/** About this many date labels at full width, half as many on a phone. */
+const TARGET_LABELS = 10
 
-const GRID_STEPS = [1, 0.75, 0.5, 0.25, 0]
+function xPercent(index: number, count: number): number {
+  return count <= 1 ? 50 : (index / (count - 1)) * 100
+}
 
-/** Axis ticks only - deterministic grouping, no currency symbol to crowd them. */
-const TICKS = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 })
+function seriesPoints(days: DayBucket[], key: SeriesKey, axisMax: number): Point[] {
+  const toY = (minor: number) => VIEW_H - (minor / axisMax) * VIEW_H
+  // A single day has nothing to curve between, so it spans the width.
+  if (days.length === 1) {
+    const y = toY(days[0][key])
+    return [
+      { x: 0, y },
+      { x: VIEW_W, y },
+    ]
+  }
+  return days.map((day, i) => ({ x: (i / (days.length - 1)) * VIEW_W, y: toY(day[key]) }))
+}
+
+/** Every step-th day counted back from today, so the latest day is always labelled. */
+function axisLabels(count: number): { index: number; phoneHidden: boolean }[] {
+  if (count === 0) return []
+  const step = Math.max(1, Math.ceil(count / TARGET_LABELS))
+  const labels: { index: number; phoneHidden: boolean }[] = []
+  for (let i = count - 1, k = 0; i >= 0; i -= step, k++) {
+    labels.push({ index: i, phoneHidden: k % 2 === 1 })
+  }
+  return labels.reverse()
+}
 
 export function InvoiceAnalytics({
   series,
@@ -58,35 +86,74 @@ export function InvoiceAnalytics({
 }) {
   const [range, setRange] = useState<RangeKey>(RANGES[0].key)
   const [active, setActive] = useState<number | null>(null)
+  const [focused, setFocused] = useState(false)
   const [showTable, setShowTable] = useState(false)
+  const plotRef = useRef<HTMLDivElement>(null)
+  // useId can contain characters that break a url(#...) reference.
+  const gradientId = useId().replace(/[^a-zA-Z0-9_-]/g, "")
 
-  const current = series[range]
-  const { days, totals } = current
-  const axisMax = niceAxisMax(
-    Math.max(...days.map((d) => d.receivedMinor + d.pendingMinor + d.overdueMinor), 0)
-  )
+  const { days, totals, startDate, endDate } = series[range]
+  const count = days.length
+  const axisMax = Math.max(0, ...days.map((d) => d.invoicedMinor)) * HEADROOM || 1
   const isEmpty = totals.invoicedMinor === 0
 
+  const paths = useMemo(
+    () =>
+      SERIES.map((s) => {
+        const points = seriesPoints(days, s.key, axisMax)
+        return { ...s, line: monotoneLinePath(points), area: monotoneAreaPath(points, VIEW_H) }
+      }),
+    [days, axisMax]
+  )
+
   const money = (minor: number) => formatMoney(toMajor(minor, currency), currency)
-  const activeDay = active != null ? days[active] : null
+  const readout = (day: DayBucket) =>
+    `${formatShortDay(day.date)}: ${SERIES.map((s) => `${s.label} ${money(day[s.key])}`).join(", ")}`
+
+  const activeDay = active != null && active < count ? days[active] : null
+  const activeX = active != null ? xPercent(active, count) : 0
+  const labels = axisLabels(count)
+
+  /** Nearest day to the pointer - readers aim at a date, not at a 2px line. */
+  function indexAt(clientX: number): number | null {
+    const rect = plotRef.current?.getBoundingClientRect()
+    if (!rect || rect.width === 0 || count === 0) return null
+    const ratio = Math.min(Math.max((clientX - rect.left) / rect.width, 0), 1)
+    return count === 1 ? 0 : Math.round(ratio * (count - 1))
+  }
+
+  function onKeyDown(event: React.KeyboardEvent) {
+    if (count === 0) return
+    const last = count - 1
+    const moves: Record<string, (i: number) => number> = {
+      ArrowLeft: (i) => Math.max(i - 1, 0),
+      ArrowRight: (i) => Math.min(i + 1, last),
+      Home: () => 0,
+      End: () => last,
+    }
+    const move = moves[event.key]
+    if (!move) return
+    event.preventDefault()
+    setActive((i) => move(i ?? last))
+  }
 
   return (
-    <Card style={PALETTE}>
-      <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:space-y-0">
-        <div className="space-y-1">
-          <CardTitle className="text-base">Invoice activity</CardTitle>
-          <p className="text-xs text-muted-foreground">
+    <Card className="[--viz-invoiced:var(--foreground)] [--viz-overdue:#eb6834] [--viz-received:#2a78d6] dark:[--viz-overdue:#d95926] dark:[--viz-received:#3987e5]">
+      <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:space-y-0">
+        <div className="space-y-1.5">
+          <CardTitle className="text-base font-semibold">Invoice activity</CardTitle>
+          <p className="text-sm text-muted-foreground">
             {totals.invoiceCount} invoice{totals.invoiceCount === 1 ? "" : "s"} issued{" "}
-            {formatShortDay(current.startDate)} - {formatShortDay(current.endDate)}
+            {formatShortDay(startDate)} - {formatShortDay(endDate)}
           </p>
         </div>
 
         <div
           role="group"
           aria-label="Date range"
-          className="inline-flex shrink-0 rounded-lg border p-0.5"
+          className="inline-flex shrink-0 self-start overflow-hidden rounded-lg border"
         >
-          {RANGES.map((r) => (
+          {RANGES.map((r, i) => (
             <button
               key={r.key}
               type="button"
@@ -97,10 +164,9 @@ export function InvoiceAnalytics({
                 setActive(null)
               }}
               className={cn(
-                "rounded-md px-3 py-1.5 text-xs font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                range === r.key
-                  ? "bg-foreground text-background"
-                  : "text-muted-foreground hover:text-foreground"
+                "px-4 py-2 text-sm font-medium text-foreground outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+                i > 0 && "border-l",
+                range === r.key ? "bg-muted" : "hover:bg-muted/50"
               )}
             >
               {r.label}
@@ -110,167 +176,197 @@ export function InvoiceAnalytics({
       </CardHeader>
 
       <CardContent className="space-y-4">
-        {/* Legend and direct values in one row: identity never rests on colour
-            alone, and every total is readable without hovering anything. */}
-        <div className="flex flex-wrap gap-x-6 gap-y-2">
-          {SERIES.map((s) => (
-            <div key={s.key} className="space-y-0.5">
-              <div className="flex items-center gap-1.5">
-                <span
-                  aria-hidden
-                  className="size-2.5 shrink-0 rounded-[2px]"
-                  style={{ backgroundColor: s.color }}
-                />
-                <span className="text-xs text-muted-foreground">{s.label}</span>
-              </div>
-              <div className="text-lg leading-tight font-semibold tabular-nums">
-                {money(totals[s.key])}
-              </div>
-            </div>
-          ))}
-        </div>
+        {/* One focusable chart rather than a tab stop per day: arrow keys move
+            the same crosshair the pointer does. */}
+        <div
+          role="group"
+          aria-roledescription="chart"
+          aria-label="Invoice activity by day. Use the left and right arrow keys to read each day."
+          tabIndex={0}
+          onKeyDown={onKeyDown}
+          onFocus={() => {
+            setFocused(true)
+            setActive((i) => i ?? count - 1)
+          }}
+          onBlur={() => {
+            setFocused(false)
+            setActive(null)
+          }}
+          className="rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4 focus-visible:ring-offset-card"
+        >
+          <div
+            ref={plotRef}
+            className="relative"
+            style={{ height: PLOT_HEIGHT }}
+            onPointerMove={(e) => setActive(indexAt(e.clientX))}
+            onPointerDown={(e) => setActive(indexAt(e.clientX))}
+            onPointerLeave={() => {
+              if (!focused) setActive(null)
+            }}
+          >
+            {GRID.map((g) => (
+              <div
+                key={g}
+                aria-hidden
+                className="absolute inset-x-0 border-t border-border/70"
+                style={{ top: `${g * 100}%` }}
+              />
+            ))}
 
-        <div className="relative flex gap-2">
-          {/* Y axis */}
-          <div className="relative w-16 shrink-0" style={{ height: PLOT_HEIGHT }}>
-            {GRID_STEPS.map((step) => (
+            <svg
+              aria-hidden
+              className="absolute inset-0 size-full overflow-visible"
+              viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
+              preserveAspectRatio="none"
+            >
+              <defs>
+                {paths.map((p) => (
+                  <linearGradient key={p.key} id={`${gradientId}-${p.key}`} x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" style={{ stopColor: p.color, stopOpacity: p.fillOpacity }} />
+                    <stop offset="100%" style={{ stopColor: p.color, stopOpacity: 0 }} />
+                  </linearGradient>
+                ))}
+              </defs>
+              {/* Every fill before any stroke, so no line is ever hidden under
+                  another series' wash where the curves cross. */}
+              {paths.map((p) => (
+                <path key={`${p.key}-area`} d={p.area} fill={`url(#${gradientId}-${p.key})`} />
+              ))}
+              {/* Strokes in reverse, so invoiced - the envelope - is drawn last.
+                  Where a part equals the whole, as with an invoice paid in full,
+                  the neutral outline stays on top instead of vanishing under
+                  the coloured one and reading as "received, never invoiced". */}
+              {[...paths].reverse().map((p) => (
+                <path
+                  key={`${p.key}-line`}
+                  d={p.line}
+                  fill="none"
+                  style={{ stroke: p.color }}
+                  strokeWidth={p.strokeWidth}
+                  strokeLinejoin="round"
+                  strokeLinecap="round"
+                  vectorEffect="non-scaling-stroke"
+                />
+              ))}
+            </svg>
+
+            {isEmpty && (
+              <p className="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground">
+                No invoices issued in this period.
+              </p>
+            )}
+
+            {activeDay && (
+              <>
+                <div
+                  aria-hidden
+                  className="pointer-events-none absolute inset-y-0 w-px bg-foreground/25"
+                  style={{ left: `${activeX}%` }}
+                />
+                {SERIES.map((s) => (
+                  <span
+                    key={s.key}
+                    aria-hidden
+                    className="pointer-events-none absolute size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-card"
+                    style={{
+                      left: `${activeX}%`,
+                      top: `${(1 - activeDay[s.key] / axisMax) * 100}%`,
+                      backgroundColor: s.color,
+                    }}
+                  />
+                ))}
+                {/* Beside the crosshair, on whichever side has room. */}
+                <div
+                  aria-hidden
+                  className="pointer-events-none absolute top-2 z-10 w-max rounded-lg border bg-popover px-3 py-2 text-popover-foreground shadow-md"
+                  style={
+                    activeX <= 50
+                      ? { left: `calc(${activeX}% + 14px)` }
+                      : { right: `calc(${100 - activeX}% + 14px)` }
+                  }
+                >
+                  <div className="mb-1.5 text-xs font-medium">{formatShortDay(activeDay.date)}</div>
+                  <div className="space-y-1">
+                    {SERIES.map((s) => (
+                      <div key={s.key} className="flex items-center gap-2 text-xs">
+                        <span
+                          aria-hidden
+                          className="h-0.5 w-3 shrink-0 rounded-full"
+                          style={{ backgroundColor: s.color }}
+                        />
+                        <span className="font-semibold tabular-nums">{money(activeDay[s.key])}</span>
+                        <span className="text-muted-foreground">{s.label}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+
+          <div aria-hidden className="relative mt-2 h-4 text-xs text-muted-foreground">
+            {labels.map(({ index, phoneHidden }) => (
               <span
-                key={step}
-                className="absolute right-0 -translate-y-1/2 text-[10px] tabular-nums text-muted-foreground"
-                style={{ top: `${(1 - step) * 100}%` }}
+                key={days[index].date}
+                className={cn("absolute top-0 whitespace-nowrap", phoneHidden && "hidden sm:block")}
+                style={{
+                  left: `${xPercent(index, count)}%`,
+                  // The outermost labels align to the edge instead of hanging off it.
+                  transform:
+                    count > 1 && index === 0
+                      ? "none"
+                      : count > 1 && index === count - 1
+                        ? "translateX(-100%)"
+                        : "translateX(-50%)",
+                }}
               >
-                {TICKS.format(toMajor(axisMax * step, currency))}
+                {formatShortDay(days[index].date)}
               </span>
             ))}
           </div>
 
-          <div className="relative min-w-0 flex-1">
-            <div className="relative" style={{ height: PLOT_HEIGHT }}>
-              {/* Gridlines: hairline, solid, recessive. */}
-              {GRID_STEPS.map((step) => (
-                <div
-                  key={step}
-                  aria-hidden
-                  className={cn(
-                    "absolute inset-x-0 border-t",
-                    step === 0 ? "border-border" : "border-border/60"
-                  )}
-                  style={{ top: `${(1 - step) * 100}%` }}
-                />
-              ))}
-
-              {isEmpty && (
-                <p className="absolute inset-0 flex items-center justify-center text-xs text-muted-foreground">
-                  No invoices issued in this period.
-                </p>
-              )}
-
-              {/* 2px of surface between neighbours, the same gap used inside a
-                  stack - separation comes from the gap, never from a stroke. */}
-              <div className="absolute inset-0 flex items-stretch gap-[2px]">
-                {days.map((day, i) => {
-                  const stack = SERIES.map((s) => ({ ...s, minor: day[s.key] })).filter(
-                    (s) => s.minor > 0
-                  )
-                  // Top-most segment first, so the rounded data-end lands on the
-                  // top of the stack and the baseline stays square.
-                  const ordered = [...stack].reverse()
-                  const label = `${formatShortDay(day.date)}: ${SERIES.map(
-                    (s) => `${s.label} ${money(day[s.key])}`
-                  ).join(", ")}`
-
-                  return (
-                    <button
-                      key={day.date}
-                      type="button"
-                      aria-label={label}
-                      onPointerEnter={() => setActive(i)}
-                      onPointerLeave={() => setActive((a) => (a === i ? null : a))}
-                      onFocus={() => setActive(i)}
-                      onBlur={() => setActive((a) => (a === i ? null : a))}
-                      className={cn(
-                        "group/col flex min-w-0 flex-1 cursor-default flex-col justify-end rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                        active === i && "bg-muted/50"
-                      )}
-                    >
-                      <span className="mx-auto flex w-full max-w-[18px] flex-col justify-end gap-[2px]">
-                        {ordered.map((s, j) => (
-                          <span
-                            key={s.key}
-                            className={cn("block w-full", j === 0 && "rounded-t-[4px]")}
-                            style={{
-                              backgroundColor: s.color,
-                              height: `${(s.minor / axisMax) * PLOT_HEIGHT}px`,
-                            }}
-                          />
-                        ))}
-                      </span>
-                    </button>
-                  )
-                })}
-              </div>
-
-              {activeDay && (
-                <div
-                  role="status"
-                  // Inside the plot, in the half the pointer is not in. Above
-                  // the plot it would sit on top of the legend and the totals;
-                  // following the column horizontally would put it over the
-                  // very bar being read. This corner is always free.
-                  className={cn(
-                    "pointer-events-none absolute top-1 z-10 w-max max-w-[220px] rounded-lg border bg-popover p-2.5 text-popover-foreground shadow-md",
-                    active! < days.length / 2 ? "right-1" : "left-1"
-                  )}
-                >
-                  <div className="mb-1 text-xs font-medium">{formatShortDay(activeDay.date)}</div>
-                  {SERIES.map((s) => (
-                    <div key={s.key} className="flex items-center gap-2 text-xs">
-                      <span
-                        aria-hidden
-                        className="h-0.5 w-3 shrink-0 rounded-full"
-                        style={{ backgroundColor: s.color }}
-                      />
-                      <span className="font-semibold tabular-nums">{money(activeDay[s.key])}</span>
-                      <span className="text-muted-foreground">{s.label}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Only the ends and the middle - a tick per day is unreadable. */}
-            <div className="mt-1.5 flex justify-between text-[10px] text-muted-foreground">
-              <span>{formatShortDay(days[0]?.date)}</span>
-              {days.length > 2 && (
-                <span>{formatShortDay(days[Math.floor(days.length / 2)]?.date)}</span>
-              )}
-              <span>{formatShortDay(days[days.length - 1]?.date)}</span>
-            </div>
+          <div className="sr-only" aria-live="polite">
+            {focused && activeDay ? readout(activeDay) : ""}
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
+          {/* Legend and period totals together: identity never rests on colour
+              alone, and every total is readable without hovering. */}
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+            {SERIES.map((s) => (
+              <div key={s.key} className="flex items-center gap-2 text-xs">
+                <span aria-hidden className="size-2.5 shrink-0 rounded-[3px]" style={{ backgroundColor: s.color }} />
+                <span className="text-muted-foreground">{s.label}</span>
+                <span className="font-medium text-foreground">{money(totals[s.key])}</span>
+              </div>
+            ))}
+          </div>
+
           <button
             type="button"
             onClick={() => setShowTable((v) => !v)}
-            className="inline-flex items-center gap-1.5 rounded-md text-xs text-muted-foreground transition-colors outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            className="inline-flex items-center gap-1.5 rounded-md text-xs text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
           >
             {showTable ? <X className="size-3.5" /> : <Table2 className="size-3.5" />}
             {showTable ? "Hide table" : "Show as table"}
           </button>
-          {hasMixedCurrencies && (
-            <p className="text-xs text-muted-foreground">
-              {currency} invoices only - you also have invoices in other currencies.
-            </p>
-          )}
         </div>
+
+        {hasMixedCurrencies && (
+          <p className="text-xs text-muted-foreground">
+            {currency} invoices only - you also have invoices in other currencies.
+          </p>
+        )}
 
         {showTable && (
           <div className="max-h-64 overflow-auto rounded-lg border">
             <table className="w-full text-left text-xs">
               <thead className="sticky top-0 bg-muted text-muted-foreground">
                 <tr>
-                  <th scope="col" className="p-2 font-medium">Date</th>
+                  <th scope="col" className="p-2 font-medium">
+                    Date
+                  </th>
                   {SERIES.map((s) => (
                     <th key={s.key} scope="col" className="p-2 text-right font-medium">
                       {s.label}
@@ -280,7 +376,7 @@ export function InvoiceAnalytics({
               </thead>
               <tbody>
                 {days
-                  .filter((d) => d.receivedMinor + d.pendingMinor + d.overdueMinor > 0)
+                  .filter((d) => d.invoicedMinor > 0)
                   .map((day) => (
                     <tr key={day.date} className="border-t">
                       <th scope="row" className="p-2 text-left font-normal">
@@ -295,7 +391,7 @@ export function InvoiceAnalytics({
                   ))}
                 {isEmpty && (
                   <tr className="border-t">
-                    <td colSpan={4} className="p-3 text-center text-muted-foreground">
+                    <td colSpan={SERIES.length + 1} className="p-3 text-center text-muted-foreground">
                       Nothing issued in this period.
                     </td>
                   </tr>

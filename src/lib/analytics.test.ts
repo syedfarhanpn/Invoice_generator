@@ -6,7 +6,6 @@ import {
   DEFAULT_RANGE,
   dayKey,
   earliestRangeStart,
-  niceAxisMax,
   parseRange,
   RANGES,
   rangeBounds,
@@ -185,22 +184,46 @@ describe("parseRange", () => {
   })
 })
 
-describe("niceAxisMax", () => {
-  it("snaps to a round number at or above the tallest bar", () => {
-    expect(niceAxisMax(1)).toBe(1)
-    expect(niceAxisMax(1_400)).toBe(2_000)
-    expect(niceAxisMax(4_100)).toBe(5_000)
-    expect(niceAxisMax(6_200)).toBe(10_000)
-    expect(niceAxisMax(100_000)).toBe(100_000)
+describe("daily invoiced totals", () => {
+  it("records the full invoiced amount on the issue day", () => {
+    const series = buildSeries(
+      [
+        invoice({ issueDate: new Date("2026-09-10T00:00:00.000Z"), totalAmount: 1000, amountPaid: 250 }),
+        invoice({ issueDate: new Date("2026-09-10T00:00:00.000Z"), totalAmount: 500 }),
+      ],
+      "INR",
+      "30d",
+      NOW
+    )
+    expect(series.days.find((d) => d.date === "2026-09-10")?.invoicedMinor).toBe(150_000)
+    expect(series.days.find((d) => d.date === "2026-09-11")?.invoicedMinor).toBe(0)
   })
 
-  it("never returns something a bar could exceed", () => {
-    for (const v of [1, 7, 99, 1234, 55_555, 987_654]) {
-      expect(niceAxisMax(v)).toBeGreaterThanOrEqual(v)
+  it("keeps received and overdue inside what was invoiced that day", () => {
+    // The chart draws invoiced as the envelope the other two curves sit inside.
+    // If a part could exceed the whole, its curve would poke out above it.
+    const series = buildSeries(
+      [
+        invoice({ amountPaid: 400, dueDate: new Date("2026-09-01T00:00:00.000Z") }),
+        invoice({ amountPaid: 1000 }),
+        invoice({ amountPaid: 600, advanceReceived: 400 }),
+        invoice({ issueDate: new Date("2026-09-12T00:00:00.000Z") }),
+      ],
+      "INR",
+      "30d",
+      NOW
+    )
+    for (const d of series.days) {
+      expect(d.receivedMinor + d.overdueMinor).toBeLessThanOrEqual(d.invoicedMinor)
+      expect(d.receivedMinor + d.pendingMinor + d.overdueMinor).toBe(d.invoicedMinor)
     }
   })
 
-  it("stays positive for an empty window, so the axis never divides by zero", () => {
-    for (const v of [0, -1, NaN]) expect(niceAxisMax(v)).toBeGreaterThan(0)
+  it("caps received at the invoiced amount when an invoice is overpaid", () => {
+    // An overpayment is not part of what was billed.
+    const series = buildSeries([invoice({ totalAmount: 1000, amountPaid: 1200 })], "INR", "30d", NOW)
+    expect(series.totals.receivedMinor).toBe(100_000)
+    expect(series.totals.pendingMinor).toBe(0)
+    expect(series.days.find((d) => d.date === "2026-09-10")?.receivedMinor).toBe(100_000)
   })
 })

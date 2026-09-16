@@ -101,28 +101,25 @@ export function StatsSkeleton({ cards = 4 }: { cards?: number }) {
   )
 }
 
-/** Stands in for the invoice activity chart: header row, legend, plot, axis. */
+/** Stands in for the invoice activity chart: header, range control, plot, axis, legend. */
 export function ChartSkeleton() {
   return (
     <Card>
-      <div className="flex items-center justify-between px-(--card-spacing)">
+      <div className="flex flex-col gap-4 px-(--card-spacing) sm:flex-row sm:items-start sm:justify-between">
         <div className="space-y-2">
-          <Skeleton className="h-5 w-32" />
-          <Skeleton className="h-3 w-48" />
+          <Skeleton className="h-5 w-36" />
+          <Skeleton className="h-4 w-52" />
         </div>
-        <Skeleton className="h-8 w-56 rounded-lg" />
+        <Skeleton className="h-9 w-56 rounded-lg" />
       </div>
-      <div className="flex gap-6 px-(--card-spacing)">
+      <div className="space-y-2 px-(--card-spacing)">
+        <Skeleton className="h-[240px] w-full rounded-lg" />
+        <Skeleton className="h-3 w-full" />
+      </div>
+      <div className="flex flex-wrap gap-5 px-(--card-spacing)">
         {Array.from({ length: 3 }).map((_, i) => (
-          <div key={i} className="space-y-1.5">
-            <Skeleton className="h-3 w-16" />
-            <Skeleton className="h-5 w-24" />
-          </div>
+          <Skeleton key={i} className="h-3.5 w-28" />
         ))}
-      </div>
-      <div className="flex gap-2 px-(--card-spacing)">
-        <Skeleton className="h-[180px] w-16" />
-        <Skeleton className="h-[180px] flex-1" />
       </div>
     </Card>
   )
