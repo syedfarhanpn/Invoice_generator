@@ -80,3 +80,49 @@ export function formatShortDay(value: Date | string | number | null | undefined)
   const date = toDate(value)
   return date ? normalize(SHORT_DAY.format(date)) : ""
 }
+
+// ---------------------------------------------------------------------------
+// Follow-ups
+//
+// Document dates are calendar days pinned to UTC, above. Follow-ups are the
+// opposite kind of thing: appointments in the operator's own day. A reminder
+// rendered in UTC would sit 5.5 hours off the day it belongs to, so these
+// render in IST and say "Today" when today is what they mean.
+// ---------------------------------------------------------------------------
+
+const FOLLOW_UP_ZONE = "Asia/Kolkata"
+
+const DUE_DAY = new Intl.DateTimeFormat(LOCALE, {
+  timeZone: FOLLOW_UP_ZONE,
+  month: "short",
+  day: "numeric",
+})
+
+/** Which IST day an instant falls on, as YYYY-MM-DD. */
+function followUpDayKey(date: Date): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: FOLLOW_UP_ZONE }).format(date)
+}
+
+export type DueTone = "overdue" | "today" | "upcoming" | "none"
+
+/**
+ * A due date as the operator reads it, with the tone the UI colours by. Only
+ * "overdue" and "today" ever earn the signal colour.
+ */
+export function describeDue(
+  value: Date | string | number | null | undefined,
+  now: Date = new Date()
+): { label: string; tone: DueTone } {
+  const date = toDate(value)
+  if (!date) return { label: "", tone: "none" }
+
+  const day = followUpDayKey(date)
+  const today = followUpDayKey(now)
+  if (day === today) return { label: "Today", tone: "today" }
+
+  const diff = Math.round((Date.parse(day) - Date.parse(today)) / 86_400_000)
+  if (diff === 1) return { label: "Tomorrow", tone: "upcoming" }
+  if (diff === -1) return { label: "Yesterday", tone: "overdue" }
+  if (diff < 0) return { label: Math.abs(diff) + " days late", tone: "overdue" }
+  return { label: normalize(DUE_DAY.format(date)), tone: "upcoming" }
+}

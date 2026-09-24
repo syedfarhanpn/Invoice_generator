@@ -1,0 +1,52 @@
+{
+  "title": "Choose the CRM's shape",
+  "question": "Safer register: no roll, you pick. Three conventional shapes plus the category standard, all light, minimal and roomy, held to a Notion and Attio craft bar.",
+  "steer": true,
+  "canon": true,
+  "reroll": { "registers": ["safer", "bolder"] },
+  "buildPath": { "value": "code", "toggle": false },
+  "options": [
+    {
+      "id": "quiet-table",
+      "label": "The Quiet Table",
+      "lineage": "spreadsheet-grade data surfaces",
+      "thesis": "The list is the product: one calm table you read across without a legend.",
+      "palette": ["#FCFCFC", "#ECEDEE", "#1F2124", "#4A6E8A"],
+      "materials": ["hairline rule", "tabular figures"],
+      "viewport": "The lead table fills the screen, one hairline per row, rows tall enough to breathe, every column readable without a key.",
+      "risk": "Familiar to the point of invisible, and without real density discipline it is just a spreadsheet.",
+      "case": "Closest to Attio. Best if your instinct is to scan everything at once and act from the list."
+    },
+    {
+      "id": "reading-pane",
+      "label": "The Reading Pane",
+      "lineage": "mail clients and triage tools",
+      "thesis": "Leads on the left, the open one in the middle, its history and next action on the right.",
+      "palette": ["#FBFBFA", "#F1F1EF", "#23242A", "#7A8B7F"],
+      "materials": ["split pane", "soft panel"],
+      "viewport": "Three columns that never make you lose your place: pick a lead, read it, act on it, move to the next without a page change.",
+      "risk": "Three columns get tight on a laptop and have to collapse carefully on a phone.",
+      "case": "The fastest shape for working a queue, and the most natural fit for triaging Meta leads the moment they land."
+    },
+    {
+      "id": "notebook-shell",
+      "label": "The Notebook Shell",
+      "lineage": "document-first workspaces",
+      "thesis": "Almost no chrome: each view opens like a page, sections breathing under quiet headings.",
+      "palette": ["#FFFFFF", "#F6F6F4", "#2B2B2B", "#6E6A7F"],
+      "materials": ["content blocks", "invisible chrome"],
+      "viewport": "A soft shell where today's work opens as a document, generous space between sections, controls appearing only where you are.",
+      "risk": "Roomy shells hide density. A hundred overdue leads should not need scrolling through prose to find.",
+      "case": "Closest to Notion. Best if calm and uncluttered matters more to you than seeing everything at once."
+    }
+  ],
+  "canonCard": {
+    "label": "The category standard",
+    "thesis": "The arrangement every CRM ships, built to the craft level of Notion and Attio rather than to the average.",
+    "palette": ["#FFFFFF", "#F7F8F9", "#111827", "#3B6EA5"],
+    "materials": ["left rail", "board and table views"],
+    "viewport": "Left icon rail, white ground, a pipeline board and a table view, one muted accent that only ever means something.",
+    "risk": "Recognisable from a mile away, which is the whole point and also the whole cost.",
+    "case": "No learning curve, nothing to explain, and nothing about it that is yours."
+  }
+}

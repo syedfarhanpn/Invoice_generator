@@ -6,6 +6,10 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  // Two application schemas share this database: the invoicing tables in
+  // "public", and the CRM this app now also owns, which an earlier codebase
+  // created in "crm". Declaring both lets one Prisma client read across them.
+  schemas  = ["public", "crm"]
   // Connection URLs live in prisma.config.ts (Prisma 7+).
 }
 
@@ -14,11 +18,13 @@ datasource db {
 enum Role {
   USER // a tenant: owns their own clients, documents and business profile
   SUPER_ADMIN // operator of the product: manages accounts, never reads tenant documents
+  @@schema("public")
 }
 
 enum AccountStatus {
   ACTIVE
   SUSPENDED // can authenticate with Supabase, but is refused at getCurrentUser()
+  @@schema("public")
 }
 
 model User {
@@ -45,6 +51,15 @@ model User {
   suspendedAt DateTime?
   lastLoginAt DateTime?
 
+  // CRM (schema "crm")
+  pipelines       Pipeline[]
+  deals           Deal[]
+  contacts        Contact[]
+  companyProfiles CompanyProfile[]
+  activities      Activity[]
+  tasks           Task[]
+  syncLogs        SyncLog[]
+
   apiKeys        ApiKey[]
   payments       Payment[]
   idempotency    IdempotencyRecord[]
@@ -55,6 +70,7 @@ model User {
 
   @@index([role])
   @@index([status])
+  @@schema("public")
 }
 
 /// Append-only record of every account action a super admin takes. Nothing
@@ -77,6 +93,7 @@ model AdminAuditLog {
   @@index([createdAt])
   @@index([actorId, createdAt])
   @@index([targetUserId, createdAt])
+  @@schema("public")
 }
 
 model Account {
@@ -96,6 +113,7 @@ model Account {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([provider, providerAccountId])
+  @@schema("public")
 }
 
 model Session {
@@ -104,6 +122,7 @@ model Session {
   userId       String
   expires      DateTime
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@schema("public")
 }
 
 model VerificationToken {
@@ -112,6 +131,7 @@ model VerificationToken {
   expires    DateTime
 
   @@unique([identifier, token])
+  @@schema("public")
 }
 
 model BusinessProfile {
@@ -156,6 +176,7 @@ model BusinessProfile {
   signatureImageUrl  String?
 
   updatedAt DateTime @updatedAt
+  @@schema("public")
 }
 
 // A client's `code` (e.g. "ACME") is auto-suggested from their business name
@@ -199,6 +220,13 @@ model Client {
   receiptSeq  Int @default(0)
 
   documents Document[]
+
+  // CRM (schema "crm")
+  deals           Deal[]
+  contacts        Contact[]
+  companyProfiles CompanyProfile[]
+  activities      Activity[]
+  tasks           Task[]
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
 
@@ -206,6 +234,7 @@ model Client {
   @@unique([userId, externalId])
   @@index([userId, archivedAt])
   @@index([userId, createdAt])
+  @@schema("public")
 }
 
 enum DocumentType {
@@ -213,6 +242,7 @@ enum DocumentType {
   CONTRACT
   QUOTE    // quotation / estimate - converts to an INVOICE once accepted
   PROFORMA // proforma invoice - converts to an INVOICE once confirmed
+  @@schema("public")
 }
 
 // Lifecycle only - money status (paid/partial/overdue) is derived from
@@ -224,11 +254,13 @@ enum DocumentStatus {
   SIGNED    // contracts only, after e-signature; permanently locked
   VOID      // cancelled after finalize; number stays allocated (no reuse)
   ARCHIVED
+  @@schema("public")
 }
 
 enum TaxMode {
   NONE
   PERCENTAGE
+  @@schema("public")
 }
 
 model Document {
@@ -305,6 +337,7 @@ model Document {
   @@index([userId, createdAt])
   @@index([convertedFromId])
   @@index([clientId])
+  @@schema("public")
 }
 
 /// Per-tenant API credential for the public REST surface (src/app/api/v1).
@@ -327,6 +360,7 @@ model ApiKey {
   createdAt  DateTime  @default(now())
 
   @@index([userId, revokedAt])
+  @@schema("public")
 }
 
 /// Replay protection for unsafe API calls. A retried POST with the same
@@ -349,6 +383,7 @@ model IdempotencyRecord {
 
   @@unique([userId, key])
   @@index([createdAt])
+  @@schema("public")
 }
 
 model Payment {
@@ -377,6 +412,7 @@ model Payment {
   @@unique([userId, receiptNumber])
   @@index([documentId])
   @@index([userId, paidOn])
+  @@schema("public")
 }
 
 model DocumentActivity {
@@ -389,4 +425,295 @@ model DocumentActivity {
   createdAt DateTime @default(now())
 
   @@index([documentId, createdAt])
+  @@schema("public")
+}
+
+// ---------------------------------------------------------------------------
+// CRM (schema "crm")
+//
+// Created by an earlier codebase against this same database and adopted here
+// rather than rebuilt: it already carries real foreign keys into public.User
+// and public.Client, so a deal, a contact and a task all hang off the same
+// client the invoices do. Stages live in rows, not in an enum, so the pipeline
+// is configuration the operator edits rather than a deploy.
+//
+// Migrations for these tables are tracked in crm._prisma_migrations by that
+// original app. This block describes the tables; it does not re-create them.
+// ---------------------------------------------------------------------------
+
+enum ActivityType {
+  NOTE
+  CALL
+  EMAIL
+  MEETING
+  STAGE_CHANGE
+  DEAL_WON
+  DEAL_LOST
+  CLIENT_SYNCED
+  TASK_COMPLETED
+
+  @@schema("crm")
+}
+
+enum DealOutcome {
+  WON
+  LOST
+
+  @@schema("crm")
+}
+
+enum LifecycleStage {
+  LEAD
+  PROSPECT
+  ACTIVE
+  DORMANT
+  CHURNED
+
+  @@schema("crm")
+}
+
+/// OPEN stages sit in the pipeline; WON and LOST close a deal and are what the
+/// board reads to decide where a stage move ends the story.
+///
+/// The same three apply to every board kind: a project's "Completed" is a WON
+/// stage and its "Cancelled" is LOST, a task's "Done" is WON. Only the names
+/// differ, which is the point - one board implementation, three panels.
+enum StageType {
+  OPEN
+  WON
+  LOST
+
+  @@schema("crm")
+}
+
+/// What a board holds.
+///
+/// Leads, projects and tasks are the same primitive: ordered cards in named
+/// columns. Discriminating the pipeline rather than building three board
+/// systems is what makes "customise the stages" one settings screen instead
+/// of three, and lets one drag-and-drop implementation serve all of them.
+enum PipelineKind {
+  LEADS
+  PROJECTS
+  TASKS
+
+  @@schema("crm")
+}
+
+enum SyncDirection {
+  PUSH
+  PULL
+
+  @@schema("crm")
+}
+
+enum SyncStatus {
+  SUCCESS
+  FAILED
+
+  @@schema("crm")
+}
+
+enum TaskPriority {
+  LOW
+  NORMAL
+  HIGH
+
+  @@schema("crm")
+}
+
+enum TaskStatus {
+  OPEN
+  DONE
+  CANCELLED
+
+  @@schema("crm")
+}
+
+model Pipeline {
+  id         String    @id
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name       String
+  /// Existing rows predate the other two panels, so they are LEADS.
+  kind       PipelineKind @default(LEADS)
+  isDefault  Boolean
+  position   Int
+  archivedAt DateTime?
+  createdAt  DateTime
+  updatedAt  DateTime
+
+  stages   Stage[]
+  deals    Deal[]
+  projects Project[]
+  tasks    Task[]
+
+  @@schema("crm")
+}
+
+model Stage {
+  id          String @id
+  pipelineId  String
+  pipeline    Pipeline @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  name        String
+  position    Int
+  /// Win likelihood at this stage, used for weighted pipeline value. Only
+  /// meaningful on a LEADS board; the other kinds carry zero.
+  probability Int
+  type        StageType
+  createdAt   DateTime
+  updatedAt   DateTime
+
+  deals    Deal[]
+  projects Project[]
+  tasks    Task[]
+
+  @@schema("crm")
+}
+
+/// An opportunity. Separate from Client on purpose: a client can be quoted
+/// twice, and a deal that never closes must not fill the client list.
+model Deal {
+  id               String    @id
+  userId           String
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title            String
+  description      String?
+  clientId         String?
+  client           Client?   @relation(fields: [clientId], references: [id])
+  primaryContactId String?
+  primaryContact   Contact?  @relation(fields: [primaryContactId], references: [id])
+  pipelineId       String
+  pipeline         Pipeline  @relation(fields: [pipelineId], references: [id])
+  stageId          String
+  stage            Stage     @relation(fields: [stageId], references: [id])
+  value            Decimal?
+  currency         String
+  probability      Int?
+  expectedCloseDate DateTime?
+  closedAt         DateTime?
+  outcome          DealOutcome?
+  lostReason       String?
+  source           String?
+  /// Order within its stage column on the board.
+  position         Int
+  archivedAt       DateTime?
+  createdAt        DateTime
+  updatedAt        DateTime
+
+  activities Activity[]
+  tasks      Task[]
+
+  @@schema("crm")
+}
+
+/// A person. Attaches to a Client once there is one, and stands alone before.
+model Contact {
+  id          String    @id
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clientId    String?
+  client      Client?   @relation(fields: [clientId], references: [id])
+  firstName   String
+  lastName    String?
+  email       String?
+  phone       String?
+  jobTitle    String?
+  linkedinUrl String?
+  notes       String?
+  isPrimary   Boolean
+  archivedAt  DateTime?
+  createdAt   DateTime
+  updatedAt   DateTime
+
+  deals      Deal[]
+  activities Activity[]
+  tasks      Task[]
+
+  @@schema("crm")
+}
+
+/// The commercial facts about a Client that invoicing has no use for.
+/// PLACEHOLDER_COMPANY_MARKER
+model CompanyProfile {
+  id             String   @id
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clientId       String
+  client         Client   @relation(fields: [clientId], references: [id])
+  website        String?
+  industry       String?
+  employeeCount  String?
+  lifecycleStage LifecycleStage
+  accountManager String?
+  source         String?
+  linkedinUrl    String?
+  createdAt      DateTime
+  updatedAt      DateTime
+
+  @@schema("crm")
+}
+
+/// Append-only trail. Stage moves, calls, notes and syncs all land here, so a
+/// deal's history reads in one query.
+model Activity {
+  id         String       @id
+  userId     String
+  user       User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type       ActivityType
+  subject    String?
+  body       String?
+  occurredAt DateTime
+  dealId     String?
+  deal       Deal?        @relation(fields: [dealId], references: [id])
+  clientId   String?
+  client     Client?      @relation(fields: [clientId], references: [id])
+  contactId  String?
+  contact    Contact?     @relation(fields: [contactId], references: [id])
+  meta       Json?
+  createdAt  DateTime
+
+  @@schema("crm")
+}
+
+/// The follow-up. dueAt is what the agenda view and the calendar read.
+model Task {
+  id          String       @id
+  userId      String
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title       String
+  notes       String?
+  status      TaskStatus
+  priority    TaskPriority
+  dueAt       DateTime?
+  completedAt DateTime?
+  dealId      String?
+  deal        Deal?        @relation(fields: [dealId], references: [id])
+  clientId    String?
+  client      Client?      @relation(fields: [clientId], references: [id])
+  contactId   String?
+  contact     Contact?     @relation(fields: [contactId], references: [id])
+  createdAt   DateTime
+  updatedAt   DateTime
+
+  @@schema("crm")
+}
+
+/// Every exchange with an outside system, kept whether it succeeded or not, so
+/// a failed Meta pull is visible instead of silent.
+model SyncLog {
+  id         String        @id
+  userId     String
+  user       User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  direction  SyncDirection
+  entity     String
+  localId    String?
+  remoteId   String?
+  status     SyncStatus
+  statusCode Int?
+  error      String?
+  payload    Json?
+  createdAt  DateTime
+
+  @@schema("crm")
 }

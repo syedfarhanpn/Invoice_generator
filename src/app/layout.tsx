@@ -30,11 +30,18 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    // The font variables live on <html>, not <body>: globals.css applies
+    // `font-sans` to <html>, and a variable defined on the child cannot be
+    // read by its parent. Declared here they are in scope for both.
+    <html
+      lang="en"
+      suppressHydrationWarning
+      className={`${geistSans.variable} ${geistMono.variable}`}
+    >
       <head>
         <ThemeScript />
       </head>
-      <body className={`${geistSans.variable} ${geistMono.variable} min-h-full flex flex-col antialiased bg-background text-foreground`}>
+      <body className="min-h-full flex flex-col antialiased bg-background text-foreground">
         <NavigationProgress />
         {children}
       </body>

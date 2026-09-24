@@ -1,0 +1,146 @@
+{
+  "title": "Choose the visual world for the CRM",
+  "question": "The roll assigned The Departure Board. Keep it, take an alternate, or re-roll.",
+  "steer": true,
+  "canon": true,
+  "reroll": { "registers": ["safer", "bolder"] },
+  "buildPath": { "value": "code", "toggle": false },
+  "options": [
+    {
+      "id": "assigned",
+      "label": "The Departure Board",
+      "kicker": "THE ROLL",
+      "lineage": "state-transport departure boards",
+      "thesis": "Every lead is a service on today's board: where it is going, when it is due, whether it is late.",
+      "palette": ["#0E1A16", "#EDE7DA", "#F0A315", "#C8371F"],
+      "materials": ["painted enamel board", "split-flap"],
+      "viewport": "One dense sorted field under a hall clock: three service tabs, then lead rows reading SOURCE, NAME, VALUE, STAGE, NEXT ACTION, DUE, with the DUE column carrying the only urgent colour.",
+      "risk": "Becomes transit cosplay if the rows are not genuinely dense and genuinely sorted.",
+      "raised": [
+        {
+          "from": "Darkroom safelight bay",
+          "raise": "One hall light governs the entire board; no component carries its own shadow."
+        },
+        {
+          "from": "Cracktro scroller queue",
+          "raise": "Urgency rides one continuous scale of weight and signal, never a zoo of coloured pills."
+        },
+        {
+          "from": "Miura deployable sheet",
+          "raise": "A single density control propagates across every view at once."
+        },
+        {
+          "from": "Cloud quarry",
+          "raise": "Services are separated by deep empty gaps rather than by rules and boxes."
+        },
+        {
+          "from": "Doujin event catalog",
+          "raise": "State marks the row itself: the active lead is ringed, a handled one struck through in place."
+        }
+      ]
+    },
+    {
+      "id": "model-pick",
+      "label": "The Bahi Khata",
+      "kicker": "IMPECCABLE'S PICK",
+      "lineage": "cloth-bound Indian ledgers",
+      "thesis": "The studio's book: every lead is an entry, and nothing is ever deleted, only struck.",
+      "palette": ["#7A1F15", "#F2E6CE", "#1C1B18"],
+      "materials": ["cloth binding", "hand-ruled ledger paper"],
+      "viewport": "A ruled page of today's entries with running counts kept in the margin.",
+      "risk": "Ruled paper fights dense data, and the world tips into nostalgia the moment the ruling is decorative."
+    },
+    {
+      "id": "challenger-console",
+      "label": "Dark-first console",
+      "verdict": "competitive",
+      "lineage": "developer consoles",
+      "thesis": "Persistent panels on graphite, seams one pixel wide, destructive actions left deliberately alone.",
+      "palette": ["#16181A", "#C9D1D9", "#3FB950"],
+      "materials": ["graphite ground", "hairline seam"],
+      "viewport": "Tiled panels that persist while their contents change, the delete action isolated with nothing near it.",
+      "case": "Highest product clarity of the hand and instantly legible to a developer, but it identifies with your profession rather than your commercial world.",
+      "risk": "It is exactly the category's predictable opposite, so it reads as every other dark admin tool.",
+      "hero": "https://impeccable.style/worlds/cards/digital-design-canon-dark-first-developer-console-hero.webp",
+      "board": "https://impeccable.style/worlds/cards/digital-design-canon-dark-first-developer-console.webp"
+    },
+    {
+      "id": "challenger-darkroom",
+      "label": "Darkroom safelight bay",
+      "verdict": "declined",
+      "lineage": "printing darkrooms",
+      "thesis": "Work moves through fixed stations under amber safelight, irreversible past marked points.",
+      "palette": ["#2A1606", "#E8A33D", "#D9D4C7"],
+      "materials": ["amber safelight", "wet silver print"],
+      "viewport": "Stations in order, a print emerging in the tray as the timer runs.",
+      "case": "Declined: a web studio does not identify with darkroom printing, and irreversible chemistry actively lies about leads, which move backwards all the time.",
+      "kept": "Total environmental commitment: one light source governing everything.",
+      "risk": "The metaphor misleads about what can be undone.",
+      "hero": "https://impeccable.style/worlds/cards/signals-instruments-darkroom-safelight-bay-hero.webp"
+    },
+    {
+      "id": "challenger-cracktro",
+      "label": "Cracktro scroller queue",
+      "verdict": "declined",
+      "lineage": "demoscene title screens",
+      "thesis": "Rank is depth: one bitmap face on an emissive void, nothing ever enclosed by a box.",
+      "palette": ["#000000", "#EDE6D6", "#FFB000"],
+      "materials": ["emissive void", "bitmap type"],
+      "viewport": "Baselines running past both screen edges, layers drifting at different speeds behind the front plane.",
+      "case": "Declined: demoscene nostalgia is not this audience, and banning enclosure destroys the tabular scanning a CRM lives on.",
+      "kept": "Rank carried on one continuous scale instead of badges.",
+      "risk": "Unreadable the moment the list passes a hundred rows.",
+      "hero": "https://impeccable.style/worlds/cards/operate-c-cracktro-scroller-queue-hero.webp"
+    },
+    {
+      "id": "challenger-miura",
+      "label": "Miura deployable sheet",
+      "verdict": "declined",
+      "lineage": "deployable fold geometry",
+      "thesis": "A hand-sized packet opens in one pull into a rigid tessellated field.",
+      "palette": ["#FFFFFF", "#C9A227", "#8A8F98"],
+      "materials": ["matte sheet", "gold foil packet"],
+      "viewport": "A row unfolding in place into its full record along linked creases.",
+      "case": "Declined: aerospace origami is nobody's daily world here, and a parallelogram grid fights dense tabular data.",
+      "kept": "One control propagating across the entire field at once.",
+      "risk": "Geometry that fights the data it carries.",
+      "hero": "https://impeccable.style/worlds/cards/paper-folds-pleats-deployable-miura-orbit-sheet-hero.webp"
+    },
+    {
+      "id": "challenger-quarry",
+      "label": "Cloud quarry",
+      "verdict": "declined",
+      "lineage": "impossible-world quarrying",
+      "thesis": "Blocks of weather cut from cliffs and assembled into buildings that rain from their own walls.",
+      "palette": ["#F2F5F7", "#4E7FA8", "#6E7B85"],
+      "materials": ["cut cloud block", "sky void"],
+      "viewport": "Stacked blocks with deep blue voids opening between sections.",
+      "case": "Declined: nothing about working a lead is quarrying, and the world carries no state vocabulary the product needs.",
+      "kept": "Deep voids as the structural separator instead of borders.",
+      "risk": "Pure decoration over an operational task.",
+      "hero": "https://impeccable.style/worlds/cards/dream-surreal-impossible-worlds-cloud-quarry-hero.webp"
+    },
+    {
+      "id": "challenger-doujin",
+      "label": "Doujin event catalog",
+      "verdict": "declined",
+      "lineage": "convention circle catalogs",
+      "thesis": "Thousands of stamp-sized cells in a numbered hall grid, marked up by hand in biro.",
+      "palette": ["#1A1A1A", "#D8D4CB", "#D2382E"],
+      "materials": ["newsprint", "single-ink black"],
+      "viewport": "A packed thumbnail grid keyed to a folded hall map, forty cells ringed in pen.",
+      "case": "Declined: Comiket catalogues are not this audience, though the grid-and-map-as-one-space idea nearly earns its place.",
+      "kept": "State applied as a mark on the item itself, ringed or struck through.",
+      "risk": "Hand-marked state is charming at forty items and unusable at four hundred.",
+      "hero": "https://impeccable.style/worlds/cards/pop-culture-shelf-doujin-event-catalog-hero.webp"
+    }
+  ],
+  "canonCard": {
+    "label": "The category standard",
+    "thesis": "What every CRM ships, executed impeccably: left icon rail, white ground, pastel kanban.",
+    "palette": ["#FFFFFF", "#111827", "#2563EB"],
+    "materials": ["clean grid", "rounded cards"],
+    "viewport": "The arrangement you already expect, at full craft.",
+    "risk": "Indistinguishable from HubSpot or Pipedrive, by design."
+  }
+}
