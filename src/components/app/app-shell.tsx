@@ -8,7 +8,9 @@ import {
   Briefcase,
   CalendarDays,
   FileText,
+  FolderKanban,
   LayoutGrid,
+  ListChecks,
   LogOut,
   Monitor,
   Moon,
@@ -27,6 +29,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { ReminderBell } from "./reminder-bell"
 import { isNavItemActive, type NavMatch } from "@/lib/nav"
 import { THEME_PREFERENCES, type ThemePreference } from "@/lib/theme"
 import { cn } from "@/lib/utils"
@@ -62,9 +65,11 @@ const PRIMARY: NavItem = {
 
 const PAGES: NavItem[] = [
   { href: "/crm", match: "/crm", label: "Leads & CRM", icon: Briefcase },
+  { href: "/projects", match: "/projects", label: "Projects", icon: FolderKanban },
+  { href: "/tasks", match: "/tasks", label: "Tasks", icon: ListChecks },
+  { href: "/calendar", match: "/calendar", label: "Calendar", icon: CalendarDays },
   { href: "/dashboard/documents", match: "/dashboard/documents", label: "Documents", icon: FileText },
   { href: "/dashboard/clients", match: "/dashboard/clients", label: "Clients", icon: UsersRound },
-  { href: "/calendar", match: "/calendar", label: "Calendar", icon: CalendarDays },
 ]
 
 const PREFERENCES: NavItem = {
@@ -439,6 +444,7 @@ export function AppShell({
           <NavSearch groups={groups} />
 
           <div className="ml-auto flex shrink-0 items-center gap-1">
+            <ReminderBell />
             <ThemeCycle />
           </div>
         </header>

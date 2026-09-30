@@ -54,6 +54,7 @@ model User {
   // CRM (schema "crm")
   pipelines       Pipeline[]
   deals           Deal[]
+  projects        Project[]
   contacts        Contact[]
   companyProfiles CompanyProfile[]
   activities      Activity[]
@@ -223,6 +224,7 @@ model Client {
 
   // CRM (schema "crm")
   deals           Deal[]
+  projects        Project[]
   contacts        Contact[]
   companyProfiles CompanyProfile[]
   activities      Activity[]
@@ -548,6 +550,13 @@ model Pipeline {
   projects Project[]
   tasks    Task[]
 
+  // Both already exist in the database, created by the earlier codebase.
+  // Declared here so the model stops disagreeing with the table:
+  //   Pipeline_userId_name_key       UNIQUE (userId, name)
+  //   Pipeline_one_default_per_user  UNIQUE (userId) WHERE isDefault
+  // The second is partial and has no Prisma equivalent, so src/lib/boards.ts
+  // enforces it when creating a board.
+  @@unique([userId, name])
   @@schema("crm")
 }
 
@@ -603,6 +612,7 @@ model Deal {
 
   activities Activity[]
   tasks      Task[]
+  project    Project?
 
   @@schema("crm")
 }
@@ -633,8 +643,46 @@ model Contact {
   @@schema("crm")
 }
 
+/// Work in flight, on its own board.
+///
+/// Separate from Deal because selling the work and doing the work are
+/// different lifecycles: a deal is done when it closes, a project starts
+/// there. A won deal can seed one, but never silently - not every win is a
+/// project, so the prompt is offered and can be declined.
+model Project {
+  id           String    @id @default(cuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pipelineId   String
+  pipeline     Pipeline  @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  stageId      String
+  stage        Stage     @relation(fields: [stageId], references: [id])
+  clientId     String?
+  client       Client?   @relation(fields: [clientId], references: [id])
+  /// The deal this was started from, when it was started from one. Unique:
+  /// accepting the prompt twice must not produce two projects.
+  sourceDealId String?   @unique
+  sourceDeal   Deal?     @relation(fields: [sourceDealId], references: [id])
+
+  title       String
+  description String?
+  value       Decimal?  @db.Decimal(12, 2)
+  currency    String    @default("INR")
+  startedAt   DateTime?
+  deadline    DateTime?
+  /// Order within its stage column on the board.
+  position    Int       @default(0)
+  archivedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  tasks Task[]
+
+  @@index([userId, stageId, position])
+  @@schema("crm")
+}
+
 /// The commercial facts about a Client that invoicing has no use for.
-/// PLACEHOLDER_COMPANY_MARKER
 model CompanyProfile {
   id             String   @id
   userId         String
@@ -693,9 +741,32 @@ model Task {
   client      Client?      @relation(fields: [clientId], references: [id])
   contactId   String?
   contact     Contact?     @relation(fields: [contactId], references: [id])
+  projectId   String?
+  project     Project?     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  // Board placement. Nullable because tasks predate the task board and a
+  // follow-up created against a deal still belongs to no column - `status`
+  // remains the source of truth for done-ness, and the board reads it.
+  pipelineId String?
+  pipeline   Pipeline? @relation(fields: [pipelineId], references: [id], onDelete: SetNull)
+  stageId    String?
+  stage      Stage?    @relation(fields: [stageId], references: [id], onDelete: SetNull)
+  /// Order within its stage column on the board.
+  position   Int       @default(0)
+
+  /// When to raise it. Kept apart from dueAt so a reminder can lead the
+  /// deadline - "tell me the morning before" is a different fact from "it is
+  /// due at 5pm".
+  remindAt   DateTime?
+  /// Stamped once the reminder has been surfaced, so it is raised once and
+  /// not on every poll.
+  notifiedAt DateTime?
+
   createdAt   DateTime
   updatedAt   DateTime
 
+  @@index([userId, status, remindAt])
+  @@index([userId, stageId, position])
   @@schema("crm")
 }
 

@@ -126,3 +126,52 @@ export function describeDue(
   if (diff < 0) return { label: Math.abs(diff) + " days late", tone: "overdue" }
   return { label: normalize(DUE_DAY.format(date)), tone: "upcoming" }
 }
+
+/**
+ * An instant as "YYYY-MM-DDTHH:mm" in the operator's own zone, which is the
+ * only shape a datetime-local input accepts.
+ *
+ * Built from formatToParts rather than toISOString().slice(): the latter is
+ * UTC, so a 5pm reminder would load into the form reading 11:30am. This is the
+ * exact inverse of parseLocalDateTime() in the task actions - the two have to
+ * agree or a task saved without being edited would drift by the offset each
+ * time it was opened.
+ */
+const LOCAL_INPUT = new Intl.DateTimeFormat("en-CA", {
+  timeZone: FOLLOW_UP_ZONE,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+})
+
+export function toLocalInputValue(value: Date | string | number | null | undefined): string {
+  const date = toDate(value)
+  if (!date) return ""
+
+  const parts = Object.fromEntries(
+    LOCAL_INPUT.formatToParts(date).map((part) => [part.type, part.value])
+  )
+  // en-CA renders midnight as "24" in some engines; the input wants "00".
+  const hour = parts.hour === "24" ? "00" : parts.hour
+  return `${parts.year}-${parts.month}-${parts.day}T${hour}:${parts.minute}`
+}
+
+/** The date half alone, for a plain date input or a calendar cell key. */
+export function toLocalDayKey(value: Date | string | number | null | undefined): string {
+  return toLocalInputValue(value).slice(0, 10)
+}
+
+/** "5:00 pm" in the operator's zone. Empty when the instant is null. */
+const LOCAL_TIME = new Intl.DateTimeFormat(LOCALE, {
+  timeZone: FOLLOW_UP_ZONE,
+  hour: "numeric",
+  minute: "2-digit",
+})
+
+export function formatLocalTime(value: Date | string | number | null | undefined): string {
+  const date = toDate(value)
+  return date ? normalize(LOCAL_TIME.format(date)) : ""
+}
