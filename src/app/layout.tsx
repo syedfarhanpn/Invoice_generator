@@ -4,6 +4,7 @@ import "./globals.css";
 import { NavigationProgress } from "@/components/app/navigation-progress";
 import { ThemeScript } from "@/components/app/theme-script";
 import { Analytics } from "@vercel/analytics/next";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -46,6 +47,7 @@ export default function RootLayout({
         <NavigationProgress />
         {children}
         <Analytics />
+        <SpeedInsights />
       </body>
     </html>
   );
