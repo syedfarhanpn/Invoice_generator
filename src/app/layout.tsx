@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { NavigationProgress } from "@/components/app/navigation-progress";
 import { ThemeScript } from "@/components/app/theme-script";
+import { Analytics } from "@vercel/analytics/next";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -44,6 +45,7 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col antialiased bg-background text-foreground">
         <NavigationProgress />
         {children}
+        <Analytics />
       </body>
     </html>
   );
