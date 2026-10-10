@@ -115,7 +115,15 @@ export function paymentSummary(
    * earlier milestone). Optional so every existing call site keeps its exact
    * behaviour: omitted means zero, which deducts nothing.
    */
-  advanceReceived: number | null | undefined = 0
+  advanceReceived: number | null | undefined = 0,
+  /**
+   * The moment to judge "past due" against. Defaults to now, so every existing
+   * call site is unchanged. It exists so a caller that already has a clock -
+   * buildSeries(), which is handed one - can pass the same instant it uses for
+   * its window, instead of this reaching for the wall clock independently and
+   * disagreeing with it.
+   */
+  now: Date = new Date()
 ): PaymentSummary {
   const decimals = currencyDecimals(currency)
   const factor = 10 ** decimals
@@ -126,7 +134,7 @@ export function paymentSummary(
   const ledgerMinor = Math.max(0, Math.round((Number(amountPaid) || 0) * factor))
   const paidMinor = ledgerMinor + advanceMinor
   const balanceMinor = Math.max(0, totalMinor - paidMinor)
-  const pastDue = !!dueDate && dueDate.getTime() < Date.now()
+  const pastDue = !!dueDate && dueDate.getTime() < now.getTime()
 
   let label: PaymentSummary["label"] = "Unpaid"
   if (isDraft) label = "Draft"

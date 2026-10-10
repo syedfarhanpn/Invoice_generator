@@ -143,7 +143,11 @@ export function buildSeries(
       invoice.dueDate,
       false,
       currency,
-      invoice.advanceReceived
+      invoice.advanceReceived,
+      // The same instant the window was built from. Letting this reach for the
+      // wall clock instead would make the overdue split disagree with the axis
+      // it is drawn against.
+      now
     )
 
     // The balance is either overdue or merely pending - never both, or the

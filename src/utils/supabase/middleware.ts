@@ -13,6 +13,16 @@ const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
  */
 const SESSIONLESS_PREFIXES = ["/share", "/api/"]
 
+/**
+ * Every area that requires a session. Public routes are everything else.
+ *
+ * A list rather than one "/dashboard" prefix because the workspace modules are
+ * siblings of the invoicing tree, not children of it. They were already safe -
+ * getCurrentUser() redirects before any query - but that costs a render and a
+ * database round trip to reach the same answer this gets to for free.
+ */
+const PROTECTED_PREFIXES = ["/dashboard", "/crm", "/projects", "/tasks", "/calendar"]
+
 export const updateSession = async (request: NextRequest) => {
   if (SESSIONLESS_PREFIXES.some((prefix) => request.nextUrl.pathname.startsWith(prefix))) {
     return NextResponse.next({ request })
@@ -67,16 +77,36 @@ export const updateSession = async (request: NextRequest) => {
   const isAuthenticated = !!user
 
   const pathname = request.nextUrl.pathname
-  const isDashboardRoute = pathname.startsWith("/dashboard")
   const isLoginRoute = pathname === "/login"
 
-  if (!isAuthenticated && isDashboardRoute) {
+  // The root is a doorway, not a page. Decided here rather than after a render
+  // so there is no marketing screen to blink past on the way in.
+  if (pathname === "/") {
+    const url = request.nextUrl.clone()
+    url.pathname = isAuthenticated ? "/dashboard" : "/login"
+    return NextResponse.redirect(url)
+  }
+
+  // Matched on a segment boundary so a future public "/projects-guide" could
+  // never be swept up by the "/projects" entry - the same rule src/lib/nav.ts
+  // uses for highlighting.
+  const isProtectedRoute = PROTECTED_PREFIXES.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)
+  )
+
+  if (!isAuthenticated && isProtectedRoute) {
     const url = request.nextUrl.clone()
     url.pathname = "/login"
     return NextResponse.redirect(url)
   }
 
-  if (isAuthenticated && isLoginRoute) {
+  // The `error` guard breaks a redirect loop. A suspended account still holds
+  // a valid Supabase session, so it is "authenticated" here; getCurrentUser()
+  // refuses it and sends it to /login?error=..., and its sign-out cannot clear
+  // the cookie from inside a Server Component render. Without this, that
+  // account would bounce between /login and /dashboard forever instead of
+  // reading why it was refused.
+  if (isAuthenticated && isLoginRoute && !request.nextUrl.searchParams.has("error")) {
     const url = request.nextUrl.clone()
     url.pathname = "/dashboard"
     return NextResponse.redirect(url)

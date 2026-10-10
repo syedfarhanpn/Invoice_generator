@@ -185,3 +185,27 @@ describe("formatMoney", () => {
     expect(formatMoney(null, "USD")).not.toContain("NaN")
   })
 })
+
+describe("paymentSummary clock", () => {
+  // Guards the bug that broke the analytics suite the day the fixture's due
+  // date arrived: buildSeries() was handed a fixed `now` for its window while
+  // this reached for the wall clock, so the same invoice was pending in one
+  // half of the calculation and overdue in the other.
+  const due = new Date("2026-06-01T00:00:00.000Z")
+
+  it("judges past due against the instant it is given", () => {
+    const before = paymentSummary(1000, 0, due, false, "INR", 0, new Date("2026-05-31T23:59:00.000Z"))
+    expect(before.isOverdue).toBe(false)
+    expect(before.label).toBe("Unpaid")
+
+    const after = paymentSummary(1000, 0, due, false, "INR", 0, new Date("2026-06-01T00:01:00.000Z"))
+    expect(after.isOverdue).toBe(true)
+    expect(after.label).toBe("Overdue")
+  })
+
+  it("falls back to the wall clock when given none", () => {
+    // Every existing call site omits it, so the default has to keep working.
+    const longPast = new Date("2000-01-01T00:00:00.000Z")
+    expect(paymentSummary(1000, 0, longPast, false, "INR").isOverdue).toBe(true)
+  })
+})
