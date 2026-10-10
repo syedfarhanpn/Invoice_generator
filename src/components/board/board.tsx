@@ -288,9 +288,17 @@ export function Board({
   const beforeDrag = useRef<BoardCard[]>(cards)
 
   // Server data wins whenever it changes and we are not mid-drag.
-  useEffect(() => {
-    if (!activeId) setItems(cards)
-  }, [cards, activeId])
+  //
+  // Adjusted during render rather than in an effect. Syncing props into state
+  // from an effect renders the stale list first and corrects it on a second
+  // pass, which is a visible flicker on every revalidation as well as the
+  // cascading render the lint rule warns about. Comparing against the last
+  // props we accepted makes this run once per actual change.
+  const [lastCards, setLastCards] = useState(cards)
+  if (cards !== lastCards && !activeId) {
+    setLastCards(cards)
+    setItems(cards)
+  }
 
   const sensors = useSensors(
     // A small distance so a click to open a card is not read as a drag.

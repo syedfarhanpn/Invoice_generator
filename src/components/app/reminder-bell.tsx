@@ -42,7 +42,12 @@ export function ReminderBell() {
   }, [])
 
   useEffect(() => {
-    poll()
+    // Kicked off on a timer rather than called straight from the effect body.
+    // poll() only sets state after an await, so it cannot actually cascade -
+    // but starting a fetch during the commit phase is not something to do on
+    // purpose either, and this keeps the effect's synchronous pass to pure
+    // subscription work.
+    const kickoff = setTimeout(poll, 0)
     const id = setInterval(poll, POLL_MS)
 
     // Catching up immediately after the laptop was shut, rather than waiting
@@ -53,6 +58,7 @@ export function ReminderBell() {
     document.addEventListener("visibilitychange", onVisible)
 
     return () => {
+      clearTimeout(kickoff)
       clearInterval(id)
       document.removeEventListener("visibilitychange", onVisible)
     }

@@ -1,19 +1,24 @@
 import { AppShell } from "@/components/app/app-shell"
-import { getCurrentUser, isSuperAdmin } from "@/lib/current-user"
+import { getWorkspaceIdentity } from "@/lib/workspace-identity"
 
 /**
- * The CRM and calendar tree, in the same shell as everything else.
+ * The CRM, projects, tasks and calendar tree, in the same shell as everything
+ * else.
  *
  * It stays a separate route group only so these pages can own their full
- * height and scrolling - they are single-screen tools, not documents. The
- * chrome is identical, so crossing between here and invoicing looks like one
- * app, which it now is.
+ * height and their own scrolling - they are single-screen tools rather than
+ * documents, so the shell does not wrap them in page padding.
  */
 export default async function WorkspaceLayout({ children }: { children: React.ReactNode }) {
-  const user = await getCurrentUser()
+  const identity = await getWorkspaceIdentity()
 
   return (
-    <AppShell email={user.email} isSuperAdmin={isSuperAdmin(user)}>
+    <AppShell
+      email={identity.email}
+      displayName={identity.displayName}
+      brandName={identity.brandName}
+      isSuperAdmin={identity.isSuperAdmin}
+    >
       {children}
     </AppShell>
   )

@@ -71,38 +71,51 @@
   /* Tells the browser to render native controls, scrollbars and form
      widgets in the matching scheme. Without it they stay light in dark mode. */
   color-scheme: light;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  /* Blue-tinted neutrals, not pure grey. Every surface carries a little of
+     hue 258 so the greys read as the same family as the blue accents rather
+     than as a separate grey system sitting next to them. */
+  --background: oklch(0.984 0.004 258); /* page: barely-there blue-white */
+  --foreground: oklch(0.23 0.045 262); /* deep navy, not black */
+  --card: oklch(1 0 0); /* cards are true white, lifted off the page */
+  --card-foreground: oklch(0.23 0.045 262);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.23 0.045 262);
+  --primary: oklch(0.29 0.075 263); /* navy fill on primary buttons */
+  --primary-foreground: oklch(0.99 0 0);
+  --secondary: oklch(0.965 0.007 258);
+  --secondary-foreground: oklch(0.29 0.075 263);
+  --muted: oklch(0.967 0.007 258);
+  --muted-foreground: oklch(0.556 0.028 257);
+  /* The light-blue wash behind an active nav item or a hovered row. */
+  --accent: oklch(0.955 0.022 257);
+  --accent-foreground: oklch(0.44 0.15 262);
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
+  --border: oklch(0.925 0.009 258);
+  --input: oklch(0.925 0.009 258);
+  --ring: oklch(0.62 0.13 259);
+  /* Categorical series. Blue leads because the references lead with blue; the
+     rest are spaced around the wheel rather than being shades of it.
+     src/lib/chart-palette.ts holds the same values and tests that no two are
+     closer than 0.1 in Oklab. That is a perceptual-distance check, not a
+     colour blindness simulation - which is why every chart also labels its
+     series rather than letting colour carry the meaning alone. */
+  --chart-1: oklch(0.55 0.19 260); /* blue */
+  --chart-2: oklch(0.72 0.14 178); /* teal */
+  --chart-3: oklch(0.76 0.15 78); /* amber */
+  --chart-4: oklch(0.64 0.2 22); /* red */
+  --chart-5: oklch(0.58 0.19 312); /* violet */
   --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+
+  /* The rail is white and the page is tinted, so the content area reads as
+     recessed and the navigation as the frame around it. */
+  --sidebar: oklch(1 0 0);
+  --sidebar-foreground: oklch(0.23 0.045 262);
+  --sidebar-primary: oklch(0.29 0.075 263);
+  --sidebar-primary-foreground: oklch(0.99 0 0);
+  --sidebar-accent: oklch(0.953 0.025 257); /* light blue active pill */
+  --sidebar-accent-foreground: oklch(0.44 0.15 262);
+  --sidebar-border: oklch(0.928 0.008 258);
+  --sidebar-ring: oklch(0.62 0.13 259);
 
   /* Saturated ink on a pale wash of the same hue. */
   --tone-success: oklch(0.52 0.13 157);
@@ -122,24 +135,24 @@
   /* Near-black ground with panels barely lifted off it - the hairline does
      the separating, not a step in lightness. Matches the reference, where a
      card reads as a card because of its border, not its fill. */
-  --background: oklch(0.13 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.158 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.178 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.225 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.225 0 0);
-  --muted-foreground: oklch(0.655 0 0);
-  --accent: oklch(0.235 0 0);
-  --accent-foreground: oklch(0.985 0 0);
+  --background: oklch(0.139 0.008 258); /* near-black, faintly blue */
+  --foreground: oklch(0.985 0.002 258);
+  --card: oklch(0.172 0.009 258); /* panels barely lifted; borders separate */
+  --card-foreground: oklch(0.985 0.002 258);
+  --popover: oklch(0.195 0.01 258);
+  --popover-foreground: oklch(0.985 0.002 258);
+  --primary: oklch(0.62 0.17 260); /* blue fill, not white, on dark */
+  --primary-foreground: oklch(0.99 0 0);
+  --secondary: oklch(0.242 0.012 258);
+  --secondary-foreground: oklch(0.985 0.002 258);
+  --muted: oklch(0.242 0.012 258);
+  --muted-foreground: oklch(0.682 0.022 257);
+  --accent: oklch(0.262 0.018 258);
+  --accent-foreground: oklch(0.985 0.002 258);
   --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 9%);
-  --input: oklch(1 0 0 / 14%);
-  --ring: oklch(0.556 0 0);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.62 0.15 259);
 
   /* Lighter, more saturated ink than the light theme uses, over a dark wash:
      the same badge has to clear contrast on near-black too. */
@@ -153,21 +166,24 @@
   --tone-danger-bg: oklch(0.71 0.19 20 / 15%);
   --tone-special: oklch(0.73 0.18 300);
   --tone-special-bg: oklch(0.73 0.18 300 / 15%);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
+  /* Same hues, lifted and slightly desaturated: a series that clears contrast
+     on white is too dark to read on near-black, so the pair are tuned per
+     theme rather than shared. */
+  --chart-1: oklch(0.68 0.17 260); /* blue */
+  --chart-2: oklch(0.78 0.14 178); /* teal */
+  --chart-3: oklch(0.82 0.15 78); /* amber */
+  --chart-4: oklch(0.7 0.18 22); /* red */
+  --chart-5: oklch(0.7 0.17 312); /* violet */
   /* A shade below the content ground rather than above it, so the rail reads
      as the back of the app and the working area sits in front of it. */
-  --sidebar: oklch(0.112 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.922 0 0);
-  --sidebar-primary-foreground: oklch(0.205 0 0);
-  --sidebar-accent: oklch(0.235 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 8%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --sidebar: oklch(0.118 0.008 258);
+  --sidebar-foreground: oklch(0.985 0.002 258);
+  --sidebar-primary: oklch(0.62 0.17 260);
+  --sidebar-primary-foreground: oklch(0.99 0 0);
+  --sidebar-accent: oklch(0.268 0.03 259); /* blue-leaning active pill */
+  --sidebar-accent-foreground: oklch(0.985 0.002 258);
+  --sidebar-border: oklch(1 0 0 / 9%);
+  --sidebar-ring: oklch(0.62 0.15 259);
 }
 
 @layer base {

@@ -1,21 +1,25 @@
 import { AppShell } from "@/components/app/app-shell"
-import { getCurrentUser, isSuperAdmin } from "@/lib/current-user"
+import { getWorkspaceIdentity } from "@/lib/workspace-identity"
 
 /**
  * The invoicing tree, inside the one shell the whole product wears.
  *
- * This awaits the current user rather than streaming the nav around it, as
- * the old header bar did. That cost nothing: getCurrentUser() is memoized per
- * request and every page below already awaits it, so the query runs once
- * either way - this only moves it earlier, and the rail is useless without
- * knowing whether to show the operator link.
+ * This awaits the identity rather than streaming the rail around it: the
+ * underlying reads are memoized per request and every page below already
+ * awaits the user, so the queries run once either way. This only moves them
+ * earlier, and the rail cannot be drawn without knowing which links to show.
  */
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const user = await getCurrentUser()
+  const identity = await getWorkspaceIdentity()
 
   return (
-    <AppShell email={user.email} isSuperAdmin={isSuperAdmin(user)}>
-      <div className="flex flex-1 flex-col gap-4 p-4 md:gap-8 md:p-8">{children}</div>
+    <AppShell
+      email={identity.email}
+      displayName={identity.displayName}
+      brandName={identity.brandName}
+      isSuperAdmin={identity.isSuperAdmin}
+    >
+      <div className="flex flex-1 flex-col gap-5 p-4 md:p-6">{children}</div>
     </AppShell>
   )
 }
