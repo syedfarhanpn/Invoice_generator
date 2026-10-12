@@ -134,6 +134,22 @@ export async function sendWorkspaceInvite(details: InviteDetails): Promise<Invit
 
 type GeneratedLink = { url: string | null; error: string | null }
 
+/**
+ * A link that lands on our own /auth/confirm, carrying the token to verify.
+ *
+ * NOT `properties.action_link`, which is the obvious thing to use and is
+ * wrong here. That one points at Supabase's own /auth/v1/verify, and after
+ * Supabase checks the token it bounces to redirect_to with the session in
+ * the URL FRAGMENT (#access_token=...). A fragment is never sent to the
+ * server, so our route handler saw a bare URL with no query at all and said
+ * "That link is not valid" - which is exactly what it should say when handed
+ * nothing, and exactly the wrong outcome for a perfectly good invite.
+ *
+ * `properties.hashed_token` is the same token in the form verifyOtp() takes,
+ * so pointing straight at our route lets it do the verification server-side.
+ * That is the style /auth/confirm was written to prefer, and its own comment
+ * says why: the secret never reaches the browser.
+ */
 async function generate(
   admin: NonNullable<ReturnType<typeof createAdminClient>>,
   type: "invite" | "recovery",
@@ -146,5 +162,16 @@ async function generate(
     options: { redirectTo },
   })
   if (error) return { url: null, error: error.message }
+
+  const tokenHash = data?.properties?.hashed_token
+  if (tokenHash) {
+    const url = new URL(redirectTo)
+    url.searchParams.set("token_hash", tokenHash)
+    url.searchParams.set("type", type)
+    return { url: url.toString(), error: null }
+  }
+
+  // Nothing to verify with. The provider link is a worse experience but is
+  // better than handing the operator nothing at all.
   return { url: data?.properties?.action_link ?? null, error: null }
 }

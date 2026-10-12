@@ -474,6 +474,15 @@ function MemberRowView({
 
       <td className="px-4 py-2.5">
         <span className="block text-muted-foreground">{member.summary}</span>
+        {/* This column shows what they have been given; the status column
+            says whether it is live yet. Without this line the two read as a
+            contradiction. */}
+        {member.status === "INVITED" && (
+          <span className="block text-xs text-tone-warning">Applies once they sign in</span>
+        )}
+        {member.status === "SUSPENDED" && (
+          <span className="block text-xs text-tone-warning">Paused while suspended</span>
+        )}
         {canEdit && !member.isOwner && (
           <button
             type="button"

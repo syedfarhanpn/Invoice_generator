@@ -75,6 +75,16 @@ describe("an inactive membership has no access", () => {
     expect(can(context({ role: "ADMIN", status: "INVITED" }), "clients", "read")).toBe(false)
   })
 
+  it("has everything the role grants the moment the invitation is accepted", () => {
+    // The counterpart to the rule above, and the reason getViewer() flips
+    // INVITED to ACTIVE on first sign-in: without that step an invited Admin
+    // stays at "No access" forever, because nothing else ever moves them.
+    const accepted = context({ role: "ADMIN", status: "ACTIVE" })
+    for (const moduleKey of MODULES) {
+      expect(resolveAccess(accepted, moduleKey)).toBe("write")
+    }
+  })
+
   it("cannot be re-granted access by an override", () => {
     const suspended = context({
       role: "DEVELOPER",

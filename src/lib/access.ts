@@ -68,11 +68,36 @@ export const ACCESS_TO_DB: Record<Access, PermissionAccess> = {
 export const getViewer = cache(async (): Promise<Viewer> => {
   const user = await getCurrentUser()
 
-  const membership = await prisma.membership.findFirst({
+  let membership = await prisma.membership.findFirst({
     where: { userId: user.id, status: { in: ["ACTIVE", "INVITED", "SUSPENDED"] } },
     orderBy: { createdAt: "asc" },
     select: { id: true, orgId: true, role: true, status: true },
   })
+
+  /**
+   * Signing in with an invited address IS accepting the invitation.
+   *
+   * resolveAccess() grants nothing to anyone who is not ACTIVE, which is what
+   * makes suspending someone actually stop them. The side effect was that an
+   * INVITED member had no access to anything however generous their role, and
+   * nothing ever moved them on: Suspend / Reinstate is deliberately hidden
+   * for invitees, so ACTIVE was a state no path could reach.
+   *
+   * Done here rather than in getCurrentUser() because the membership and its
+   * status have just been read anyway - so the common case costs nothing, and
+   * the write only fires on the one request where it is true.
+   *
+   * Scoped to INVITED. A SUSPENDED membership stays suspended; letting a
+   * sign-in clear it would mean anyone shut out could restore themselves by
+   * signing in again.
+   */
+  if (membership?.status === "INVITED") {
+    await prisma.membership.update({
+      where: { id: membership.id },
+      data: { status: "ACTIVE", joinedAt: new Date() },
+    })
+    membership = { ...membership, status: "ACTIVE" }
+  }
 
   if (!membership) {
     return {

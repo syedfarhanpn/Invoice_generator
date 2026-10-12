@@ -121,9 +121,25 @@ export default async function TeamPage() {
   const members: MemberRow[] = memberships.map((membership) => {
     const name = displayNameFor(membership.user)
     const overrides = memberOverrides.get(membership.id) ?? {}
+    /**
+     * What their configuration grants - deliberately not what the gate would
+     * return for them today.
+     *
+     * resolveAccess() gives nothing to anyone who is not ACTIVE, which is
+     * correct where it matters: an invited or suspended person must actually
+     * be stopped. But reading that straight into this column means an admin
+     * who has just set someone's permissions sees "No access" the instant
+     * they save, which looks exactly like the save failed. It did not; the
+     * grants are stored and will apply the moment the person accepts.
+     *
+     * So this column answers "what have I given them" and the Status column
+     * beside it answers "can they use it yet". The row spells out the
+     * difference for anyone not yet active, rather than leaving the reader to
+     * reconcile two columns.
+     */
     const matrix = resolveMatrix({
       role: membership.role,
-      status: membership.status,
+      status: "ACTIVE",
       roleOverrides: roleOverrides.get(membership.role),
       memberOverrides: overrides,
     })
