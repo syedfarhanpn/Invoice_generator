@@ -1,3 +1,4 @@
+import { requirePermission } from "@/lib/access"
 import { redirect, notFound } from "next/navigation"
 import prisma from "@/lib/db"
 import { DocumentType, Prisma } from "@prisma/client"
@@ -12,6 +13,8 @@ const ALLOWED_TYPES: readonly DocumentType[] = CREATABLE_TYPES
 export default async function CreateDocumentAction(props: {
   searchParams: Promise<{ type?: string; client?: string }>
 }) {
+  await requirePermission("documents", "write")
+
   const searchParams = await props.searchParams
   const type = searchParams.type as DocumentType
   if (!type || !ALLOWED_TYPES.includes(type)) {

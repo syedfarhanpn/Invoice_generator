@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 import { z } from "zod"
 
 import prisma from "@/lib/db"
+import { assertPermission } from "@/lib/access"
 import { getCurrentUser } from "@/lib/current-user"
 import { canDeleteClient, canDeleteDocument, canVoidDocument } from "@/lib/bulk-actions"
 
@@ -31,6 +32,7 @@ export type BulkResult = {
 
 /** Deletes selected DRAFT documents. Issued documents are skipped, not deleted. */
 export async function bulkDeleteDocuments(ids: string[]): Promise<BulkResult> {
+  await assertPermission("documents", "write")
   const user = await getCurrentUser()
   const parsed = idsSchema.safeParse(ids)
   if (!parsed.success) throw new Error("Nothing valid was selected.")
@@ -57,6 +59,7 @@ export async function bulkDeleteDocuments(ids: string[]): Promise<BulkResult> {
 
 /** Voids selected FINALIZED/SIGNED documents, keeping their serial allocated. */
 export async function bulkVoidDocuments(ids: string[]): Promise<BulkResult> {
+  await assertPermission("documents", "write")
   const user = await getCurrentUser()
   const parsed = idsSchema.safeParse(ids)
   if (!parsed.success) throw new Error("Nothing valid was selected.")
@@ -100,6 +103,7 @@ export async function bulkVoidDocuments(ids: string[]): Promise<BulkResult> {
  * must be archived instead.
  */
 export async function bulkDeleteClients(ids: string[]): Promise<BulkResult> {
+  await assertPermission("clients", "write")
   const user = await getCurrentUser()
   const parsed = idsSchema.safeParse(ids)
   if (!parsed.success) throw new Error("Nothing valid was selected.")
@@ -127,6 +131,7 @@ export async function bulkDeleteClients(ids: string[]): Promise<BulkResult> {
 
 /** Archives selected clients - always safe, and reversible. */
 export async function bulkArchiveClients(ids: string[], archived: boolean): Promise<BulkResult> {
+  await assertPermission("clients", "write")
   const user = await getCurrentUser()
   const parsed = idsSchema.safeParse(ids)
   if (!parsed.success) throw new Error("Nothing valid was selected.")

@@ -1,3 +1,4 @@
+import { requirePermission } from "@/lib/access"
 import prisma from "@/lib/db"
 import { notFound } from "next/navigation"
 import DocumentEditor from "./document-editor"
@@ -22,6 +23,8 @@ export async function generateMetadata(props: { params: Promise<{ id: string }> 
 }
 
 export default async function DocumentPage(props: { params: Promise<{ id: string }> }) {
+  await requirePermission("documents", "read")
+
   const params = await props.params
   const user = await getCurrentUser()
 

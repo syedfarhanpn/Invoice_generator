@@ -1,11 +1,14 @@
 "use client"
 
 import { useMemo, useState, useTransition } from "react"
-import { Search } from "lucide-react"
+import { Download, Search, SlidersHorizontal } from "lucide-react"
 
 import { createDeal, moveDeal } from "@/app/(workspace)/crm/actions"
 import { startProjectFromDeal } from "@/app/(workspace)/projects/actions"
 import { Board, type BoardCard, type BoardColumn } from "@/components/board/board"
+import { Pagination } from "@/components/app/pagination"
+import { LeadsListView } from "@/components/workspace/leads-list-view"
+import { pageSlice } from "@/lib/pagination"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -16,6 +19,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { describeDue, type DueTone } from "@/lib/dates"
+import type { WorkspaceMember } from "@/lib/members"
 import { formatMoney } from "@/lib/money"
 import { cn } from "@/lib/utils"
 
@@ -47,7 +51,12 @@ export type DealRow = {
   source: string | null
   nextTaskTitle: string | null
   nextTaskDueAt: string | null
+  assigneeName: string | null
   createdAt: string
+  contactEmail: string | null
+  contactPhone: string | null
+  /** ISO. The last recorded exchange, or when the row last moved. */
+  lastContactAt: string
 }
 
 export type StageColumn = { id: string; name: string; position: number; type: string }
@@ -89,27 +98,33 @@ export function DealTable({
   stages,
   details,
   clients,
+  members,
 }: {
   rows: DealRow[]
   stages: StageColumn[]
   details: Record<string, DealDetailData>
   clients: ClientOption[]
+  members: WorkspaceMember[]
 }) {
   const [view, setView] = useState<View>("inbox")
   const [query, setQuery] = useState("")
   const [compact, setCompact] = useState(false)
+  const [stageFilter, setStageFilter] = useState<string>("all")
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [wonDeal, setWonDeal] = useState<{ id: string; title: string } | null>(null)
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
-    if (!q) return rows
-    return rows.filter((r) =>
-      [r.title, r.clientName, r.contactName, r.stageName]
+    return rows.filter((r) => {
+      if (stageFilter !== "all" && r.stageId !== stageFilter) return false
+      if (!q) return true
+      return [r.title, r.clientName, r.contactName, r.stageName, r.source]
         .filter(Boolean)
         .some((field) => field!.toLowerCase().includes(q))
-    )
-  }, [rows, query])
+    })
+  }, [rows, query, stageFilter])
 
   const agenda = useMemo(
     () =>
@@ -144,6 +159,7 @@ export function DealTable({
           badges.push({ label: "No next action", tone: "warning" })
         }
         if (row.source) badges.push({ label: row.source, tone: "info" })
+        if (row.assigneeName) badges.push({ label: row.assigneeName, tone: "special" })
 
         return {
           id: row.id,
@@ -164,8 +180,12 @@ export function DealTable({
 
   const rowHeight = compact ? "h-8" : "h-11"
 
+  // Paginated like the reference. Client-side over rows the page already
+  // has - see the note in src/components/app/pagination.tsx.
+  const visible = pageSlice(filtered, page, pageSize)
+
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex flex-col overflow-hidden rounded-xl border bg-card">
       <header className="flex h-14 shrink-0 items-center justify-between gap-4 border-b px-4">
         <div role="group" aria-label="View" className="flex items-center gap-0.5">
           {VIEWS.map((v) => (
@@ -194,13 +214,57 @@ export function DealTable({
             />
             <input
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search deals"
-              aria-label="Search deals"
+              onChange={(e) => {
+              setQuery(e.target.value)
+              setPage(1)
+            }}
+              placeholder="Search leads..."
+              aria-label="Search leads"
               className="h-8 w-44 rounded-md border bg-background pr-2 pl-7 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
             />
           </div>
-          {view !== "board" && (
+          {view === "inbox" && (
+            <>
+              {/* The reference's filter control, as a real stage filter.
+                  Built from the board's own columns, so renaming a stage
+                  renames it here too. */}
+              <label className="flex items-center gap-1.5">
+                <SlidersHorizontal
+                  className="size-3.5 text-muted-foreground"
+                  strokeWidth={1.75}
+                  aria-hidden
+                />
+                <span className="sr-only">Filter by status</span>
+                <select
+                  value={stageFilter}
+                  onChange={(e) => {
+                    setStageFilter(e.target.value)
+                    setPage(1)
+                  }}
+                  className="h-8 rounded-md border bg-transparent px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <option value="all">All statuses</option>
+                  {stages.map((stage) => (
+                    <option key={stage.id} value={stage.id}>
+                      {stage.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              {/* A real export, through the same gated route the reports use. */}
+              <a
+                href="/reports/export?report=sales&range=all"
+                download
+                aria-label="Export leads as CSV"
+                className="rounded-md p-1.5 text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <Download className="size-4" strokeWidth={1.75} />
+              </a>
+            </>
+          )}
+
+          {view === "agenda" && (
             <button
               type="button"
               onClick={() => setCompact((v) => !v)}
@@ -223,7 +287,7 @@ export function DealTable({
           addLabel="Add a lead"
         />
       ) : (
-        <div className="min-h-0 flex-1 overflow-auto">
+        <div className="overflow-x-auto">
           {filtered.length === 0 ? (
             <div className="flex h-full min-h-64 flex-col items-center justify-center gap-1 px-6 text-center">
               <p className="text-sm text-foreground">
@@ -236,11 +300,33 @@ export function DealTable({
               </p>
             </div>
           ) : (
-            <ListView
-              rows={view === "agenda" ? agenda : filtered}
-              rowHeight={rowHeight}
-              onOpen={setEditingId}
-              showStage={view !== "agenda"}
+            view === "agenda" ? (
+              <ListView
+                rows={agenda}
+                rowHeight={rowHeight}
+                onOpen={setEditingId}
+                showStage={false}
+              />
+            ) : (
+              <LeadsListView
+                rows={visible}
+                onOpen={setEditingId}
+                startIndex={(page - 1) * pageSize}
+              />
+            )
+          )}
+
+          {view === "inbox" && filtered.length > 0 && (
+            <Pagination
+              total={filtered.length}
+              page={page}
+              pageSize={pageSize}
+              onPageChange={setPage}
+              onPageSizeChange={(size) => {
+                setPageSize(size)
+                setPage(1)
+              }}
+              noun="leads"
             />
           )}
         </div>
@@ -249,6 +335,7 @@ export function DealTable({
       <DealDetail
         deal={editingId ? (details[editingId] ?? null) : null}
         clients={clients}
+        members={members}
         onClose={() => setEditingId(null)}
       />
       <WonPrompt deal={wonDeal} onClose={() => setWonDeal(null)} />
@@ -324,12 +411,13 @@ function ListView({
     // what you are reading; it gets the width.
     <table className="w-full table-fixed text-left text-sm">
       <colgroup>
-        <col className="w-[30%]" />
-        <col className="w-[20%]" />
-        <col className="w-[12%]" />
-        {showStage && <col className="w-[14%]" />}
-        <col className={showStage ? "w-[14%]" : "w-[28%]"} />
-        <col className="w-[10%]" />
+        <col className="w-[24%]" />
+        <col className="w-[17%]" />
+        <col className="w-[11%]" />
+        {showStage && <col className="w-[12%]" />}
+        <col className="w-[13%]" />
+        <col className={showStage ? "w-[14%]" : "w-[26%]"} />
+        <col className="w-[9%]" />
       </colgroup>
       <thead>
         <tr className="border-b text-muted-foreground">
@@ -337,6 +425,7 @@ function ListView({
           <th scope="col" className="px-4 py-2 font-normal">Client</th>
           <th scope="col" className="px-4 py-2 text-right font-normal">Value</th>
           {showStage && <th scope="col" className="px-4 py-2 font-normal">Stage</th>}
+          <th scope="col" className="px-4 py-2 font-normal">Assigned to</th>
           <th scope="col" className="px-4 py-2 font-normal">Next action</th>
           <th scope="col" className="px-4 py-2 font-normal">Due</th>
         </tr>
@@ -367,6 +456,9 @@ function ListView({
               <Money value={row.value} currency={row.currency} />
             </td>
             {showStage && <td className="px-4 text-muted-foreground">{row.stageName}</td>}
+            <td className="max-w-0 truncate px-4 text-muted-foreground">
+              {row.assigneeName ?? <span className="text-tone-warning">Unassigned</span>}
+            </td>
             <td className="max-w-0 truncate px-4">
               <NextAction row={row} />
             </td>
@@ -379,3 +471,4 @@ function ListView({
     </table>
   )
 }
+

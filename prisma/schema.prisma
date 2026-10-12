@@ -27,6 +27,213 @@ enum AccountStatus {
   @@schema("public")
 }
 
+// ---------------------------------------------------------------------------
+// Workspace
+//
+// The product began as one-workspace-per-User: a Client belonged to a person,
+// not to a company. That cannot express a team, which is what the business
+// actually is - several people working the same clients, with "assigned to"
+// and "project manager" meaning something.
+//
+// So business data hangs off an Organisation, and a User reaches it through a
+// Membership that carries their role. `userId` stays on every row as the
+// record of who created it; `orgId` is what scopes a query.
+// ---------------------------------------------------------------------------
+
+/// What a member may do. Enforced server-side in src/lib/permissions.ts -
+/// hiding a nav item is presentation, not access control.
+enum MemberRole {
+  OWNER // the account the workspace was created from; cannot be demoted or removed
+  ADMIN
+  PROJECT_MANAGER
+  SALES_EXECUTIVE
+  DEVELOPER
+  SUPPORT_EXECUTIVE
+  ACCOUNTANT
+  CONTENT_CREATOR
+
+  @@schema("public")
+}
+
+enum MemberStatus {
+  INVITED // invitation sent, never signed in
+  ACTIVE
+  SUSPENDED // kept, not deleted, so their authored rows keep a real author
+
+  @@schema("public")
+}
+
+model Organisation {
+  id   String @id @default(cuid())
+  name String
+  /// Stable handle for URLs and for addressing the workspace in an invite.
+  slug String @unique
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members     Membership[]
+  departments Department[]
+
+  businessProfiles BusinessProfile[]
+  clients          Client[]
+  documents        Document[]
+  payments         Payment[]
+  apiKeys          ApiKey[]
+  pipelines        Pipeline[]
+  deals            Deal[]
+  projects         Project[]
+  contacts         Contact[]
+  companyProfiles  CompanyProfile[]
+  activities       Activity[]
+  tasks            Task[]
+  expenses         Expense[]
+  subscriptions    Subscription[]
+  tickets          Ticket[]
+  syncLogs         SyncLog[]
+  permissionGrants PermissionGrant[]
+  memberAuditLogs  MemberAuditLog[]
+
+  @@schema("public")
+}
+
+/// A person's place in a workspace. One row per (org, user).
+model Membership {
+  id     String       @id @default(cuid())
+  orgId  String
+  org    Organisation @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  userId String
+  user   User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  role   MemberRole   @default(DEVELOPER)
+  status MemberStatus @default(INVITED)
+
+  /// Free-text job title, shown beside the name. Distinct from `role`, which
+  /// is what the server checks.
+  title        String?
+  departmentId String?
+  department   Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+
+  invitedAt    DateTime?
+  joinedAt     DateTime?
+  lastActiveAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  assignedDeals   Deal[]    @relation("DealAssignee")
+  managedProjects Project[] @relation("ProjectManager")
+  assignedTasks   Task[]    @relation("TaskAssignee")
+  recordedExpenses Expense[] @relation("ExpenseRecorder")
+  ownedSubscriptions Subscription[] @relation("SubscriptionOwner")
+  assignedTickets    Ticket[]       @relation("TicketAssignee")
+  ticketReplies      TicketReply[]  @relation("TicketReplyAuthor")
+  permissionGrants   PermissionGrant[]
+  auditActions       MemberAuditLog[] @relation("MemberAuditActor")
+  auditTargets       MemberAuditLog[] @relation("MemberAuditTarget")
+
+  @@unique([orgId, userId])
+  @@index([orgId, status])
+  @@schema("public")
+}
+
+// ---------------------------------------------------------------------------
+// Permissions (schema "public")
+//
+// MemberRole existed before this and enforced nothing - it was a label in a
+// dropdown. These rows are what a workspace sets ON TOP of the built-in
+// defaults in src/lib/permissions.ts, and src/lib/access.ts is the gate that
+// applies them on the server. Hiding a nav item is not access control.
+//
+// A grant is either for a ROLE (everyone holding it) or for one MEMBERSHIP
+// (that person alone), never both and never neither - enforced by a CHECK, so
+// a row cannot exist that nothing would ever read.
+// ---------------------------------------------------------------------------
+
+enum PermissionAccess {
+  NONE // a decision to revoke, not the absence of one
+  READ
+  WRITE
+
+  @@schema("public")
+}
+
+model PermissionGrant {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organisation @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  /// Set for a role-wide grant. Null for a per-person one.
+  role MemberRole?
+  /// Set for a per-person grant. Null for a role-wide one.
+  membershipId String?
+  membership   Membership? @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+
+  /// One of src/lib/permissions.ts MODULES. Text rather than an enum because
+  /// the module list grows with the product and an enum would mean a
+  /// migration each time. An unrecognised value grants nothing - the resolver
+  /// only ever looks up modules it knows, so this fails closed.
+  module String
+  access PermissionAccess
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// Postgres allows many NULLs under a unique index, so the role-wide and
+  /// per-person uniques do not collide with each other.
+  @@unique([orgId, role, module])
+  @@unique([membershipId, module])
+  @@index([orgId])
+  @@schema("public")
+}
+
+/// Append-only record of what was done to whom in a workspace. Nothing
+/// deletes from here: if someone's role was changed or their access revoked,
+/// that has to stay provable afterwards.
+model MemberAuditLog {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organisation @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  /// Who did it, and who it was done to. Both nullable and both SET NULL, so
+  /// removing a membership never erases the history of their actions.
+  actorId  String?
+  actor    Membership? @relation("MemberAuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+  targetId String?
+  target   Membership? @relation("MemberAuditTarget", fields: [targetId], references: [id], onDelete: SetNull)
+
+  /// A stable key, e.g. "member.role_changed", for filtering.
+  action String
+  /// The sentence shown in the activity list, written when it happened -
+  /// rebuilding it later from ids that may since have been nulled would turn
+  /// history into guesswork.
+  summary String
+  meta    Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([orgId, createdAt])
+  @@schema("public")
+}
+
+/// Sales, Development, Operations, Admin. Expenses are attributed to one of
+/// these when they are overhead rather than billable to a project.
+model Department {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organisation @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  name  String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members  Membership[]
+  expenses Expense[]
+
+  @@unique([orgId, name])
+  @@schema("public")
+}
+
 model User {
   id            String    @id @default(cuid())
   email         String    @unique
@@ -41,6 +248,7 @@ model User {
   clients         Client[]
   documents       Document[]
   clientSeq       Int       @default(0) // next Client.clientNumber to hand out
+  ticketSeq       Int       @default(0) // next Ticket.number to hand out
 
   // Access control. Authentication is Supabase's job; authorization is ours,
   // and it lives here rather than in an env var so accounts can be managed at
@@ -51,6 +259,8 @@ model User {
   suspendedAt DateTime?
   lastLoginAt DateTime?
 
+  memberships     Membership[]
+
   // CRM (schema "crm")
   pipelines       Pipeline[]
   deals           Deal[]
@@ -59,6 +269,9 @@ model User {
   companyProfiles CompanyProfile[]
   activities      Activity[]
   tasks           Task[]
+  expenses        Expense[]
+  subscriptions   Subscription[]
+  tickets         Ticket[]
   syncLogs        SyncLog[]
 
   apiKeys        ApiKey[]
@@ -139,6 +352,8 @@ model BusinessProfile {
   id            String   @id @default(cuid())
   userId        String   @unique
   user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orgId  String?
+  org    Organisation? @relation(fields: [orgId], references: [id], onDelete: Cascade)
   businessName  String
   ownerName     String
   email         String
@@ -177,6 +392,7 @@ model BusinessProfile {
   signatureImageUrl  String?
 
   updatedAt DateTime @updatedAt
+  @@index([orgId])
   @@schema("public")
 }
 
@@ -188,6 +404,8 @@ model Client {
   id              String     @id @default(cuid())
   userId          String
   user            User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orgId  String?
+  org    Organisation? @relation(fields: [orgId], references: [id], onDelete: Cascade)
   clientNumber    Int        // sequential internal id, assigned from User.clientSeq
   code            String     // short uppercase code used in document serials
   fullName        String
@@ -229,6 +447,8 @@ model Client {
   companyProfiles CompanyProfile[]
   activities      Activity[]
   tasks           Task[]
+  subscriptions   Subscription[]
+  tickets         Ticket[]
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
 
@@ -236,6 +456,7 @@ model Client {
   @@unique([userId, externalId])
   @@index([userId, archivedAt])
   @@index([userId, createdAt])
+  @@index([orgId])
   @@schema("public")
 }
 
@@ -269,6 +490,8 @@ model Document {
   id       String @id @default(cuid())
   userId   String
   user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orgId  String?
+  org    Organisation? @relation(fields: [orgId], references: [id], onDelete: Cascade)
   clientId String?
   client   Client? @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
@@ -339,6 +562,7 @@ model Document {
   @@index([userId, createdAt])
   @@index([convertedFromId])
   @@index([clientId])
+  @@index([orgId])
   @@schema("public")
 }
 
@@ -349,6 +573,8 @@ model ApiKey {
   id     String @id @default(cuid())
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orgId  String?
+  org    Organisation? @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   name String // human label, e.g. "HubSpot production"
 
@@ -362,6 +588,7 @@ model ApiKey {
   createdAt  DateTime  @default(now())
 
   @@index([userId, revokedAt])
+  @@index([orgId])
   @@schema("public")
 }
 
@@ -398,6 +625,8 @@ model Payment {
   // only reachable through Document and could not be scoped per tenant.
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orgId  String?
+  org    Organisation? @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   // Allocated when the payment is recorded, e.g. RCP-ACME-001. A receipt
   // acknowledges money that has already moved, so unlike a document it is
@@ -414,6 +643,7 @@ model Payment {
   @@unique([userId, receiptNumber])
   @@index([documentId])
   @@index([userId, paidOn])
+  @@index([orgId])
   @@schema("public")
 }
 
@@ -536,6 +766,8 @@ model Pipeline {
   id         String    @id
   userId     String
   user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orgId  String?
+  org    Organisation? @relation(fields: [orgId], references: [id], onDelete: Cascade)
   name       String
   /// Existing rows predate the other two panels, so they are LEADS.
   kind       PipelineKind @default(LEADS)
@@ -557,6 +789,7 @@ model Pipeline {
   // The second is partial and has no Prisma equivalent, so src/lib/boards.ts
   // enforces it when creating a board.
   @@unique([userId, name])
+  @@index([orgId])
   @@schema("crm")
 }
 
@@ -586,6 +819,8 @@ model Deal {
   id               String    @id
   userId           String
   user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orgId  String?
+  org    Organisation? @relation(fields: [orgId], references: [id], onDelete: Cascade)
   title            String
   description      String?
   clientId         String?
@@ -610,9 +845,16 @@ model Deal {
   createdAt        DateTime
   updatedAt        DateTime
 
+  /// The member working this lead. Nullable: an unassigned lead is a real
+  /// state, and the one the inbox is meant to surface.
+  assignedToId String?
+  assignedTo   Membership? @relation("DealAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+
   activities Activity[]
   tasks      Task[]
   project    Project?
+
+  @@index([orgId])
 
   @@schema("crm")
 }
@@ -622,6 +864,8 @@ model Contact {
   id          String    @id
   userId      String
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orgId  String?
+  org    Organisation? @relation(fields: [orgId], references: [id], onDelete: Cascade)
   clientId    String?
   client      Client?   @relation(fields: [clientId], references: [id])
   firstName   String
@@ -639,6 +883,9 @@ model Contact {
   deals      Deal[]
   activities Activity[]
   tasks      Task[]
+  tickets    Ticket[]
+
+  @@index([orgId])
 
   @@schema("crm")
 }
@@ -653,6 +900,8 @@ model Project {
   id           String    @id @default(cuid())
   userId       String
   user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orgId  String?
+  org    Organisation? @relation(fields: [orgId], references: [id], onDelete: Cascade)
   pipelineId   String
   pipeline     Pipeline  @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
   stageId      String
@@ -676,9 +925,28 @@ model Project {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  tasks Task[]
+  /// Who owns delivery. Separate from whoever created the row.
+  managerId String?
+  manager   Membership? @relation("ProjectManager", fields: [managerId], references: [id], onDelete: SetNull)
+
+  /// What kind of work this is - E-commerce, Portfolio, AMC. Free text rather
+  /// than an enum, because the list of things an agency sells changes faster
+  /// than a deploy does.
+  category String?
+
+  /// Delivery progress, 0-100, as the operator judges it. Explicit rather
+  /// than derived from task completion: a project can be 80% done with two
+  /// trivial tasks left. Task counts are shown beside this, not instead of it.
+  progress Int?
+
+  tasks         Task[]
+  expenses      Expense[]
+  subscriptions Subscription[]
+  tickets       Ticket[]
 
   @@index([userId, stageId, position])
+  @@index([orgId])
+  @@index([managerId])
   @@schema("crm")
 }
 
@@ -687,6 +955,8 @@ model CompanyProfile {
   id             String   @id
   userId         String
   user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orgId  String?
+  org    Organisation? @relation(fields: [orgId], references: [id], onDelete: Cascade)
   clientId       String
   client         Client   @relation(fields: [clientId], references: [id])
   website        String?
@@ -699,6 +969,8 @@ model CompanyProfile {
   createdAt      DateTime
   updatedAt      DateTime
 
+  @@index([orgId])
+
   @@schema("crm")
 }
 
@@ -708,6 +980,8 @@ model Activity {
   id         String       @id
   userId     String
   user       User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orgId  String?
+  org    Organisation? @relation(fields: [orgId], references: [id], onDelete: Cascade)
   type       ActivityType
   subject    String?
   body       String?
@@ -721,6 +995,8 @@ model Activity {
   meta       Json?
   createdAt  DateTime
 
+  @@index([orgId])
+
   @@schema("crm")
 }
 
@@ -729,6 +1005,8 @@ model Task {
   id          String       @id
   userId      String
   user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orgId  String?
+  org    Organisation? @relation(fields: [orgId], references: [id], onDelete: Cascade)
   title       String
   notes       String?
   status      TaskStatus
@@ -762,11 +1040,359 @@ model Task {
   /// not on every poll.
   notifiedAt DateTime?
 
+  assigneeId String?
+  assignee   Membership? @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+
   createdAt   DateTime
   updatedAt   DateTime
 
   @@index([userId, status, remindAt])
   @@index([userId, stageId, position])
+  @@index([orgId])
+  @@schema("crm")
+}
+
+// ---------------------------------------------------------------------------
+// Expenses (schema "crm")
+//
+// Money going out. Every expense is either attributable to one project or it
+// is company overhead - never both, and never neither. That is a discriminator
+// rather than a nullable projectId, because "no project set" and "deliberately
+// overhead" are different facts, and a report that cannot tell them apart will
+// either double-count or silently drop the overhead.
+// ---------------------------------------------------------------------------
+
+/// What an expense is attributable to. The database enforces the pairing with
+/// projectId - see the CHECK in the migration.
+enum ExpenseScope {
+  PROJECT  // attributable to one project; projectId required
+  OVERHEAD // company-wide; projectId must be null
+
+  @@schema("crm")
+}
+
+enum ExpenseStatus {
+  PAID
+  PENDING
+  PARTIALLY_PAID
+  OVERDUE
+
+  @@schema("crm")
+}
+
+/// How often a cost repeats. ONE_OFF is the default so nothing silently
+/// recurs; a recurring expense carries nextDueOn and the renewals view reads it.
+enum ExpenseRecurrence {
+  ONE_OFF
+  MONTHLY
+  QUARTERLY
+  YEARLY
+
+  @@schema("crm")
+}
+
+model Expense {
+  id     String        @id @default(cuid())
+  userId String
+  user   User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orgId  String?
+  org    Organisation? @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  title    String
+  /// Free text, seeded from the operator settings rather than an enum: the
+  /// categories an agency tracks change faster than a deploy does.
+  category String
+  amount   Decimal  @db.Decimal(12, 2)
+  currency String   @default("INR")
+  spentOn  DateTime
+
+  vendor        String?
+  paymentMethod String?
+  status        ExpenseStatus @default(PAID)
+  notes         String?
+
+  /// The attribution. See the note at the top of this block.
+  scope     ExpenseScope @default(OVERHEAD)
+  projectId String?
+  project   Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  /// Which part of the business carried it. Independent of scope: a project
+  /// cost still belongs to a department.
+  departmentId String?
+  department   Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+
+  recurrence ExpenseRecurrence @default(ONE_OFF)
+  /// When the next instance falls due. Null for a one-off.
+  nextDueOn  DateTime?
+
+  /// The renewal this payment settled, when it settled one. A Subscription
+  /// records what is COMMITTED; this row records what was actually PAID.
+  /// Reports read the expense and treat the subscription as the reason, so a
+  /// renewal is counted once rather than once per table.
+  subscriptionId String?
+  subscription   Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+
+  /// Who entered it, for the activity trail.
+  recordedById String?
+  recordedBy   Membership? @relation("ExpenseRecorder", fields: [recordedById], references: [id], onDelete: SetNull)
+
+  archivedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([userId, spentOn])
+  @@index([orgId])
+  @@index([projectId])
+  @@index([departmentId])
+  @@index([userId, scope])
+  @@index([subscriptionId])
+  @@schema("crm")
+}
+
+// ---------------------------------------------------------------------------
+// Subscriptions (schema "crm")
+//
+// AMCs, domains, hosting and SSL are the same fact wearing different words: a
+// commitment that costs money, belongs to someone, and comes due on a date.
+// One table rather than three, because the screen that earns its keep is "what
+// expires in the next sixty days" ACROSS all of them - three tables would make
+// that three queries and a merge, and every new kind of service an agency
+// resells would be another table with its own renewal arithmetic to keep in
+// step. `kind` is what the Renewals and Domains pages filter on.
+//
+// Note what is NOT stored: whether something is expiring, overdue or lapsed.
+// All three are `renewsOn` compared against now, and a stored copy would go
+// stale the moment nobody opened the page. Status carries only what a date
+// cannot say - that the operator deliberately let it go.
+// ---------------------------------------------------------------------------
+
+enum SubscriptionKind {
+  AMC // an annual maintenance contract sold to a client - revenue, not cost
+  DOMAIN
+  HOSTING
+  SSL
+  EMAIL
+  OTHER
+
+  @@schema("crm")
+}
+
+/// How long one paid period lasts. The long cycles exist because domains are
+/// routinely registered two and three years at a time.
+enum BillingCycle {
+  MONTHLY
+  QUARTERLY
+  HALF_YEARLY
+  YEARLY
+  BIENNIAL
+  TRIENNIAL
+
+  @@schema("crm")
+}
+
+/// Deliberately two values. "Expiring", "due" and "overdue" are all derived
+/// from renewsOn - see the note above.
+enum SubscriptionStatus {
+  ACTIVE
+  CANCELLED // we are letting it lapse, or it already has
+
+  @@schema("crm")
+}
+
+model Subscription {
+  id     String        @id @default(cuid())
+  userId String
+  user   User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orgId  String?
+  org    Organisation? @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  kind SubscriptionKind
+  /// What it is: "pixiewebs.com", "Curefully AMC", "Hostinger Business".
+  name String
+
+  /// Whose it is. Null means the company's own - our domain, our hosting.
+  clientId  String?
+  client    Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  /// The work it supports, when there is one.
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  /// Registrar, host, or whoever we pay. Null for an AMC, where we are paid.
+  provider String?
+  /// The account or reference the service sits under at the provider. An
+  /// identifier only - never a password, and never anything that could be
+  /// used to sign in.
+  accountRef String?
+
+  startsOn DateTime
+  /// The one date every renewal view reads.
+  renewsOn DateTime
+  cycle    BillingCycle @default(YEARLY)
+
+  /// What we pay out per cycle. Null when nothing leaves the business.
+  cost     Decimal? @db.Decimal(12, 2)
+  /// What the client pays us per cycle. Null when nobody is billed - our own
+  /// domain, for instance. Kept apart from cost so the margin on resold
+  /// hosting is a recorded fact rather than a subtraction nobody did.
+  price    Decimal? @db.Decimal(12, 2)
+  currency String   @default("INR")
+
+  /// Whether the provider renews it without us doing anything. It changes
+  /// what an approaching date MEANS: a reminder to pay, or one to budget.
+  autoRenew Boolean            @default(false)
+  status    SubscriptionStatus @default(ACTIVE)
+
+  /// When it was last put through a renewal, so "renewed yesterday" and
+  /// "never touched since it was added" are distinguishable.
+  lastRenewedAt DateTime?
+
+  /// Who is responsible for renewing it.
+  ownerId String?
+  owner   Membership? @relation("SubscriptionOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+
+  notes String?
+
+  /// The payments actually made against it. A Subscription says what is
+  /// committed; an Expense says what left the bank. Keeping the two separate
+  /// and linked is what stops a report counting one renewal twice.
+  expenses Expense[]
+
+  archivedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([userId, renewsOn])
+  @@index([userId, kind, renewsOn])
+  @@index([orgId])
+  @@index([clientId])
+  @@index([projectId])
+  @@schema("crm")
+}
+
+// ---------------------------------------------------------------------------
+// Support tickets (schema "crm")
+//
+// A ticket is a conversation with a state, which is why it is not a Task. A
+// task is something one person does; a ticket is something a client is waiting
+// on, and the waiting is the part that has to be visible.
+// ---------------------------------------------------------------------------
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  WAITING_ON_CLIENT // the ball is not in our court; not "needs a reply"
+  RESOLVED
+  CLOSED
+
+  @@schema("crm")
+}
+
+/// Its own enum rather than TaskPriority, which has no URGENT. Sharing one
+/// would mean a vocabulary change for tickets silently reshaping the task
+/// board.
+enum TicketPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+
+  @@schema("crm")
+}
+
+enum TicketChannel {
+  EMAIL
+  PHONE
+  WHATSAPP
+  IN_PERSON
+  PORTAL
+  OTHER
+
+  @@schema("crm")
+}
+
+/// Whether a reply is something the client may see. An internal note that
+/// leaked into a client-facing thread is the one failure this module cannot
+/// have, so it is a column rather than a convention.
+enum TicketReplyVisibility {
+  PUBLIC
+  INTERNAL
+
+  @@schema("crm")
+}
+
+model Ticket {
+  id     String        @id @default(cuid())
+  userId String
+  user   User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orgId  String?
+  org    Organisation? @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  /// Sequential per workspace, allocated from User.ticketSeq under the same
+  /// row lock documents use. Rendered as TKT-014.
+  number Int
+
+  subject String
+  /// What was first reported. Everything after it lives in TicketReply.
+  body    String?
+
+  clientId  String?
+  client    Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  /// Who raised it, when that is a person we hold a record for.
+  contactId String?
+  contact   Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
+  status   TicketStatus   @default(OPEN)
+  priority TicketPriority @default(NORMAL)
+  channel  TicketChannel  @default(EMAIL)
+
+  assigneeId String?
+  assignee   Membership? @relation("TicketAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+
+  /// When a reply is promised by. Null means nothing was promised - which is
+  /// a different fact from "promised and not yet late".
+  dueAt DateTime?
+  /// Stamped by the first PUBLIC reply, so response time is measured rather
+  /// than estimated.
+  firstRespondedAt DateTime?
+  resolvedAt       DateTime?
+  closedAt         DateTime?
+
+  replies TicketReply[]
+
+  archivedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@unique([userId, number])
+  @@index([userId, status, createdAt])
+  @@index([orgId])
+  @@index([clientId])
+  @@index([projectId])
+  @@index([assigneeId])
+  @@schema("crm")
+}
+
+model TicketReply {
+  id       String @id @default(cuid())
+  ticketId String
+  ticket   Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  body String
+
+  /// Who wrote it. Null when it came from the client rather than the team.
+  authorId String?
+  author   Membership? @relation("TicketReplyAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+
+  /// Direction and visibility are different facts: a message FROM the client
+  /// is always public, but a message from us may be an internal note.
+  fromClient Boolean               @default(false)
+  visibility TicketReplyVisibility @default(PUBLIC)
+
+  createdAt DateTime @default(now())
+
+  @@index([ticketId, createdAt])
   @@schema("crm")
 }
 
@@ -776,6 +1402,8 @@ model SyncLog {
   id         String        @id
   userId     String
   user       User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orgId  String?
+  org    Organisation? @relation(fields: [orgId], references: [id], onDelete: Cascade)
   direction  SyncDirection
   entity     String
   localId    String?
@@ -785,6 +1413,8 @@ model SyncLog {
   error      String?
   payload    Json?
   createdAt  DateTime
+
+  @@index([orgId])
 
   @@schema("crm")
 }

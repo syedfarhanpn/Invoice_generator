@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache"
 import type { PipelineKind, StageType } from "@prisma/client"
 
 import { ensureBoard } from "@/lib/boards"
+import { assertPermission } from "@/lib/access"
 import { getCurrentUser } from "@/lib/current-user"
 import prisma from "@/lib/db"
 
@@ -44,6 +45,7 @@ async function ownedStage(userId: string, stageId: string) {
 }
 
 export async function addStage(kindValue: string, name: string, typeValue: string) {
+  await assertPermission("settings", "write")
   const user = await getCurrentUser()
   const kind = parseKind(kindValue)
   const clean = name.trim()
@@ -76,6 +78,7 @@ export async function addStage(kindValue: string, name: string, typeValue: strin
 }
 
 export async function renameStage(stageId: string, name: string) {
+  await assertPermission("settings", "write")
   const user = await getCurrentUser()
   const clean = name.trim()
   if (!clean) throw new Error("A column needs a name.")
@@ -90,6 +93,7 @@ export async function renameStage(stageId: string, name: string) {
 }
 
 export async function setStageType(stageId: string, typeValue: string) {
+  await assertPermission("settings", "write")
   const user = await getCurrentUser()
   if (!TYPES.includes(typeValue as StageType)) throw new Error("Unknown column type.")
 
@@ -105,6 +109,7 @@ export async function setStageType(stageId: string, typeValue: string) {
 /** Swaps a column with its neighbour. One step at a time keeps this a pair of
  *  writes rather than a rewrite of the whole board. */
 export async function moveStage(stageId: string, direction: "up" | "down") {
+  await assertPermission("settings", "write")
   const user = await getCurrentUser()
   const stage = await ownedStage(user.id, stageId)
 
@@ -141,6 +146,7 @@ export async function moveStage(stageId: string, direction: "up" | "down") {
  * the kind of helpfulness nobody asks for twice.
  */
 export async function deleteStage(stageId: string) {
+  await assertPermission("settings", "write")
   const user = await getCurrentUser()
   const stage = await ownedStage(user.id, stageId)
 

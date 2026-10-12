@@ -296,3 +296,31 @@ html {
 ::-webkit-scrollbar-thumb:hover {
   background-color: color-mix(in oklch, var(--foreground) 30%, transparent);
 }
+
+/**
+ * Native <select> drop-downs.
+ *
+ * The open list is painted by the operating system, not by us, and it takes
+ * its colours from the select's own computed background. Every select in this
+ * app is bg-transparent so the border does the work - which leaves the popup
+ * with nothing to go on: the OS paints its default white list and the options
+ * inherit the near-white --foreground, giving white text on white in dark
+ * mode. Naming the colours on the option itself fixes every one of them at
+ * once, rather than re-styling thirty-two call sites.
+ *
+ * --popover rather than --background, because that is what every other
+ * floating surface in the product uses: a menu that opens over a card should
+ * be the same colour whether it is ours or the browser's.
+ */
+select option,
+select optgroup {
+  background-color: var(--popover);
+  color: var(--popover-foreground);
+}
+
+/* Firefox dims a disabled option to its own grey, which against the dark
+   popover is close to invisible. Half the foreground reads as "unavailable"
+   in both themes. */
+select option:disabled {
+  color: color-mix(in oklch, var(--popover-foreground) 45%, transparent);
+}

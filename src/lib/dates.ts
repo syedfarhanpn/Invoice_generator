@@ -81,6 +81,33 @@ export function formatShortDay(value: Date | string | number | null | undefined)
   return date ? normalize(SHORT_DAY.format(date)) : ""
 }
 
+/**
+ * A date in a list: "10 Oct 2026".
+ *
+ * Deliberately not formatDocumentDate, which renders "10/10/2026" - that is
+ * what prints on the document itself and changing it would change what a
+ * client receives. In a table of nine columns the numeric form is also the
+ * one that reads as ambiguous: a reader has to know whether the month or the
+ * day comes first, and gets it wrong for the first twelve days of a month.
+ *
+ * UTC like every other calendar date here, so the server and the browser
+ * cannot land on different days.
+ */
+const TABLE_DAY = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "UTC",
+  day: "2-digit",
+  month: "short",
+  year: "numeric",
+})
+
+export function formatTableDay(
+  value: Date | string | number | null | undefined,
+  fallback = "—"
+): string {
+  const date = toDate(value)
+  return date ? normalize(TABLE_DAY.format(date)) : fallback
+}
+
 // ---------------------------------------------------------------------------
 // Follow-ups
 //

@@ -6,7 +6,9 @@ import type { TaskPriority } from "@prisma/client"
 
 import { assertStageInBoard, ensureBoard } from "@/lib/boards"
 import { compactPositions, positionsAfterMove } from "@/lib/ordering"
+import { assertPermission } from "@/lib/access"
 import { getCurrentUser } from "@/lib/current-user"
+import { currentOrgId, resolveAssignee } from "@/lib/members"
 import prisma from "@/lib/db"
 
 /**
@@ -45,6 +47,7 @@ async function renumberColumn(
 }
 
 export async function moveTask(taskId: string, toStageId: string, toIndex: number) {
+  await assertPermission("tasks", "write")
   const user = await getCurrentUser()
   await assertStageInBoard(user.id, "TASKS", toStageId)
 
@@ -85,6 +88,7 @@ export async function moveTask(taskId: string, toStageId: string, toIndex: numbe
 }
 
 export async function createTask(stageId: string, title: string) {
+  await assertPermission("tasks", "write")
   const user = await getCurrentUser()
   const clean = title.trim()
   if (!clean) throw new Error("A task needs a title.")
@@ -104,6 +108,7 @@ export async function createTask(stageId: string, title: string) {
       // The CRM tables carry no column defaults for these - see src/lib/boards.ts.
       id: randomUUID(),
       userId: user.id,
+      orgId: await currentOrgId(user.id),
       pipelineId: board.id,
       stageId,
       title: clean,
@@ -130,11 +135,13 @@ export async function createTask(stageId: string, title: string) {
 export async function scheduleTask(input: {
   taskId: string
   title?: string
+  assigneeId?: string | null
   dueAt: string | null
   remindAt: string | null
   priority?: string
   notes?: string | null
 }) {
+  await assertPermission("tasks", "write")
   const user = await getCurrentUser()
 
   const task = await prisma.task.findFirst({
@@ -152,10 +159,14 @@ export async function scheduleTask(input: {
   const title = input.title?.trim()
   if (input.title !== undefined && !title) throw new Error("A task needs a title.")
 
+  const assigneeId =
+    input.assigneeId === undefined ? undefined : await resolveAssignee(user.id, input.assigneeId)
+
   await prisma.task.update({
     where: { id: input.taskId },
     data: {
       ...(title ? { title } : {}),
+      ...(assigneeId !== undefined ? { assigneeId } : {}),
       dueAt,
       // Rescheduling clears the stamp, so a moved reminder fires again rather
       // than staying silent because the old one already went out.
@@ -195,6 +206,7 @@ function parseLocalDateTime(value: string | null | undefined): Date | null {
 }
 
 export async function setTaskDone(taskId: string, done: boolean) {
+  await assertPermission("tasks", "write")
   const user = await getCurrentUser()
   const board = await ensureBoard(user.id, "TASKS")
 

@@ -1,5 +1,7 @@
 import Link from "next/link"
 import type { DocumentType } from "@prisma/client"
+import { viewerMatrix } from "@/lib/access"
+import type { Module } from "@/lib/permissions"
 import { Card } from "@/components/ui/card"
 import { CREATABLE_TYPES, documentKind } from "@/lib/document-kinds"
 import { FileText, FileClock, Receipt, FileSignature, UserPlus, ArrowRight } from "lucide-react"
@@ -16,6 +18,8 @@ type Action = {
    * `auto` currently stops at the nearest loading.tsx boundary.
    */
   prefetch?: false
+  /** The permission that governs where this shortcut leads. */
+  module: Module
 }
 
 const TYPE_ICONS: Record<DocumentType, React.ComponentType<{ className?: string }>> = {
@@ -42,6 +46,7 @@ const documentActions: Action[] = CREATABLE_TYPES.filter((type) => type !== "PRO
       desc: kind.description,
       icon: TYPE_ICONS[type],
       prefetch: false as const,
+      module: "documents" as const,
     }
   }
 )
@@ -53,14 +58,22 @@ const actions: Action[] = [
     title: "Add Client",
     desc: "Register a client and its serial code.",
     icon: UserPlus,
+    module: "clients",
   },
 ]
 
-export function QuickActions() {
+export async function QuickActions() {
+  // A shortcut to a page the viewer would be refused is not a shortcut. The
+  // page itself still gates; this only stops offering the journey.
+  const matrix = await viewerMatrix()
+  const visible = actions.filter((action) => matrix != null && matrix[action.module] === "write")
+
+  if (visible.length === 0) return null
+
   return (
     // Four across on a wide screen so the row is even rather than 3 + 1.
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-      {actions.map(({ href, title, desc, icon: Icon, prefetch }) => (
+      {visible.map(({ href, title, desc, icon: Icon, prefetch }) => (
         <Link key={href} href={href} prefetch={prefetch} className="group/action rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring">
           <Card className="h-full justify-between transition-colors hover:bg-muted/50 hover:ring-foreground/20">
             <div className="flex items-start justify-between px-(--card-spacing)">

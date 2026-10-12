@@ -1,6 +1,7 @@
 "use server"
 
 import prisma from "@/lib/db"
+import { assertPermission } from "@/lib/access"
 import { getCurrentUser } from "@/lib/current-user"
 import { normalizeClientCode, suggestClientCode } from "@/lib/client-code"
 import { allocateClientNumber } from "@/lib/allocate-ref"
@@ -35,11 +36,13 @@ async function codeIsTaken(userId: string, code: string, excludeClientId?: strin
 }
 
 export async function suggestCodeForName(name: string): Promise<string> {
+  await assertPermission("clients", "write")
   const user = await getCurrentUser()
   return suggestClientCode(name || "Client", (code) => codeIsTaken(user.id, code))
 }
 
 export async function createClient(input: ClientFormInput) {
+  await assertPermission("clients", "write")
   const user = await getCurrentUser()
 
   if (!input.fullName?.trim()) throw new Error("Full name is required")
@@ -79,6 +82,7 @@ export async function createClient(input: ClientFormInput) {
 }
 
 export async function updateClient(id: string, input: ClientFormInput) {
+  await assertPermission("clients", "write")
   const user = await getCurrentUser()
 
   const existing = await prisma.client.findUnique({
@@ -128,6 +132,7 @@ export async function updateClient(id: string, input: ClientFormInput) {
 }
 
 export async function archiveClient(id: string, archived: boolean) {
+  await assertPermission("clients", "write")
   const user = await getCurrentUser()
   await prisma.client.update({
     where: { id, userId: user.id },

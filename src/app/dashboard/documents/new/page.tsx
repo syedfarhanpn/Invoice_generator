@@ -1,3 +1,4 @@
+import { requirePermission } from "@/lib/access"
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import Link from "next/link"
 import { CREATABLE_TYPES, documentKind } from "@/lib/document-kinds"
@@ -5,6 +6,8 @@ import { CREATABLE_TYPES, documentKind } from "@/lib/document-kinds"
 export const metadata = { title: "New document" }
 
 export default async function NewDocumentPage(props: { searchParams: Promise<{ client?: string }> }) {
+  await requirePermission("documents", "write")
+
   const searchParams = await props.searchParams
   const clientParam = searchParams.client ? `&client=${searchParams.client}` : ""
 

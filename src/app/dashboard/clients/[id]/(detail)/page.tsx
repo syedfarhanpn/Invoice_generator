@@ -1,3 +1,4 @@
+import { requirePermission } from "@/lib/access"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { buttonVariants, Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -12,6 +13,8 @@ import { formatMoney } from "@/lib/money"
 export const metadata = { title: "Client" }
 
 export default async function ClientProfilePage(props: { params: Promise<{ id: string }> }) {
+  await requirePermission("clients", "read")
+
   const params = await props.params
   const user = await getCurrentUser()
 

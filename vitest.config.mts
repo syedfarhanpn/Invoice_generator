@@ -1,3 +1,5 @@
+import { fileURLToPath } from "node:url"
+
 import { defineConfig } from "vitest/config"
 
 export default defineConfig({
@@ -8,6 +10,9 @@ export default defineConfig({
     environment: "node",
   },
   resolve: {
-    alias: { "@": new URL("./src", import.meta.url).pathname },
+    // fileURLToPath, not URL.pathname: on Windows the latter yields
+    // "/C:/Users/...", which is not a filesystem path, so the alias silently
+    // never applies and an "@/" import fails as an unresolved package.
+    alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) },
   },
 })

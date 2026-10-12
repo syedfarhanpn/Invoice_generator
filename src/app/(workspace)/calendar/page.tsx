@@ -1,3 +1,4 @@
+import { requirePermission } from "@/lib/access"
 import { PageHeader } from "@/components/app/page-header"
 import { CalendarMonth, type CalendarEvent } from "@/components/app/calendar-month"
 import { getCurrentUser } from "@/lib/current-user"
@@ -39,6 +40,10 @@ export default async function CalendarPage({
 }: {
   searchParams: Promise<{ month?: string }>
 }) {
+  // Server-side, before any query runs. Hiding the nav entry is not
+  // access control; this is.
+  await requirePermission("calendar", "read")
+
   const user = await getCurrentUser()
   const { month: monthParam } = await searchParams
 

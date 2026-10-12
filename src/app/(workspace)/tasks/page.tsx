@@ -1,10 +1,12 @@
+import { requirePermission } from "@/lib/access"
 import type { TaskPriority } from "@prisma/client"
 import { AlarmClock, CircleCheck, ListChecks, TriangleAlert } from "lucide-react"
 
 import { PageHeader, Stat, StatStrip } from "@/components/app/page-header"
 import type { BoardCard, BoardColumn } from "@/components/board/board"
 import { ensureBoard } from "@/lib/boards"
-import { getCurrentUser } from "@/lib/current-user"
+import { displayNameFor, getWorkspaceMembers } from "@/lib/members"
+import { getWorkspaceIdentity } from "@/lib/workspace-identity"
 import { describeDue, formatLocalTime, toLocalInputValue } from "@/lib/dates"
 import prisma from "@/lib/db"
 
@@ -18,6 +20,7 @@ export type TaskDetail = {
   title: string
   notes: string | null
   priority: TaskPriority
+  assigneeId: string | null
   dueAtLocal: string
   remindAtLocal: string
   projectTitle: string | null
@@ -26,8 +29,16 @@ export type TaskDetail = {
 const PRIORITY_TONE = { HIGH: "danger", NORMAL: "muted", LOW: "muted" } as const
 
 export default async function TasksPage() {
-  const user = await getCurrentUser()
-  const board = await ensureBoard(user.id, "TASKS")
+  // Server-side, before any query runs. Hiding the nav entry is not
+  // access control; this is.
+  await requirePermission("tasks", "read")
+
+  const identity = await getWorkspaceIdentity()
+  const user = { id: identity.userId }
+  const [board, members] = await Promise.all([
+    ensureBoard(user.id, "TASKS"),
+    getWorkspaceMembers(identity.orgId),
+  ])
 
   // Board cards are the tasks that live on it. Follow-ups created against a
   // deal have no column and belong to the CRM's agenda, not here.
@@ -43,6 +54,18 @@ export default async function TasksPage() {
       dueAt: true,
       remindAt: true,
       stageId: true,
+      assigneeId: true,
+      assignee: {
+        select: {
+          user: {
+            select: {
+              email: true,
+              name: true,
+              businessProfile: { select: { ownerName: true } },
+            },
+          },
+        },
+      },
       stage: { select: { type: true } },
       project: { select: { title: true } },
     },
@@ -70,6 +93,9 @@ export default async function TasksPage() {
       badges.push({ label: "High", tone: PRIORITY_TONE.HIGH })
     }
 
+    if (task.assignee) {
+      badges.push({ label: displayNameFor(task.assignee.user), tone: "special" })
+    }
     if (task.remindAt) badges.push({ label: "Reminder set", tone: "info" })
     if (task.project) badges.push({ label: task.project.title, tone: "special" })
 
@@ -90,6 +116,7 @@ export default async function TasksPage() {
         title: task.title,
         notes: task.notes,
         priority: task.priority,
+        assigneeId: task.assigneeId,
         dueAtLocal: toLocalInputValue(task.dueAt),
         remindAtLocal: toLocalInputValue(task.remindAt),
         projectTitle: task.project?.title ?? null,
@@ -105,8 +132,8 @@ export default async function TasksPage() {
   const done = tasks.filter((task) => task.status === "DONE").length
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="space-y-4 p-4 pb-0 md:px-8 md:pt-8">
+    <div className="space-y-4 p-4 md:p-6">
+      <div className="space-y-4">
         <PageHeader title="Tasks" trail={[{ label: "Tasks" }]} />
 
         <StatStrip>
@@ -131,7 +158,7 @@ export default async function TasksPage() {
         </StatStrip>
       </div>
 
-      <TasksBoard columns={columns} cards={cards} details={details} />
+      <TasksBoard columns={columns} cards={cards} details={details} members={members} />
     </div>
   )
 }

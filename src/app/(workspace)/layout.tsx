@@ -1,4 +1,5 @@
 import { AppShell } from "@/components/app/app-shell"
+import { viewerMatrix } from "@/lib/access"
 import { getWorkspaceIdentity } from "@/lib/workspace-identity"
 
 /**
@@ -10,14 +11,16 @@ import { getWorkspaceIdentity } from "@/lib/workspace-identity"
  * documents, so the shell does not wrap them in page padding.
  */
 export default async function WorkspaceLayout({ children }: { children: React.ReactNode }) {
-  const identity = await getWorkspaceIdentity()
+  const [identity, matrix] = await Promise.all([getWorkspaceIdentity(), viewerMatrix()])
 
   return (
     <AppShell
       email={identity.email}
       displayName={identity.displayName}
       brandName={identity.brandName}
+      logoUrl={identity.logoUrl}
       isSuperAdmin={identity.isSuperAdmin}
+      matrix={matrix}
     >
       {children}
     </AppShell>

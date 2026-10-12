@@ -106,6 +106,48 @@ export function InvoiceAnalytics({
     [days, axisMax]
   )
 
+  /**
+   * Invoicing is an event, not a level. Over thirty days only a handful carry
+   * a figure, and a curve through the rest draws needles - it reads as a
+   * rendering fault, and it claims activity on days that had none. Below this
+   * density the same numbers are drawn as bars, which assert nothing about
+   * the gaps.
+   */
+  const sparse = useMemo(() => {
+    if (days.length < 3) return true
+    return days.filter((d) => d.invoicedMinor > 0).length / days.length < 0.7
+  }, [days])
+
+  /**
+   * Overlapping, not stacked: received and overdue are parts OF invoiced, not
+   * additions to it. Each sits in front of the envelope and narrower, so the
+   * nesting is what you see.
+   */
+  const bars = useMemo(() => {
+    if (!sparse) return []
+    const slot = VIEW_W / Math.max(days.length, 1)
+    const toY = (minor: number) => VIEW_H - (minor / axisMax) * VIEW_H
+    return days.map((day, i) => ({
+      date: day.date,
+      layers: SERIES.map((s, depth) => {
+        const centre = days.length === 1 ? VIEW_W / 2 : (i / (days.length - 1)) * VIEW_W
+        const width = slot * 0.62 * (1 - depth * 0.3)
+        const top = toY(day[s.key])
+        return {
+          key: s.key,
+          color: s.color,
+          // The envelope is context; the parts inside it are the reading.
+          opacity: depth === 0 ? 0.32 : 0.95,
+          x: centre - width / 2,
+          width,
+          y: top,
+          // A non-zero day always leaves a mark, even a tiny one.
+          height: day[s.key] > 0 ? Math.max(2, VIEW_H - top) : 0,
+        }
+      }),
+    }))
+  }, [days, axisMax, sparse])
+
   const money = (minor: number) => formatMoney(toMajor(minor, currency), currency)
   const readout = (day: DayBucket) =>
     `${formatShortDay(day.date)}: ${SERIES.map((s) => `${s.label} ${money(day[s.key])}`).join(", ")}`
@@ -227,27 +269,51 @@ export function InvoiceAnalytics({
                   </linearGradient>
                 ))}
               </defs>
-              {/* Every fill before any stroke, so no line is ever hidden under
-                  another series' wash where the curves cross. */}
-              {paths.map((p) => (
-                <path key={`${p.key}-area`} d={p.area} fill={`url(#${gradientId}-${p.key})`} />
-              ))}
-              {/* Strokes in reverse, so invoiced - the envelope - is drawn last.
-                  Where a part equals the whole, as with an invoice paid in full,
-                  the neutral outline stays on top instead of vanishing under
-                  the coloured one and reading as "received, never invoiced". */}
-              {[...paths].reverse().map((p) => (
-                <path
-                  key={`${p.key}-line`}
-                  d={p.line}
-                  fill="none"
-                  style={{ stroke: p.color }}
-                  strokeWidth={p.strokeWidth}
-                  strokeLinejoin="round"
-                  strokeLinecap="round"
-                  vectorEffect="non-scaling-stroke"
-                />
-              ))}
+              {sparse ? (
+                // Widest first, so each narrower part lands in front of the
+                // envelope that contains it.
+                bars.map((bar) => (
+                  <g key={bar.date}>
+                    {bar.layers
+                      .filter((layer) => layer.height > 0)
+                      .map((layer) => (
+                        <rect
+                          key={layer.key}
+                          x={layer.x}
+                          y={layer.y}
+                          width={layer.width}
+                          height={layer.height}
+                          style={{ fill: layer.color }}
+                          opacity={layer.opacity}
+                        />
+                      ))}
+                  </g>
+                ))
+              ) : (
+                <>
+                  {/* Every fill before any stroke, so no line is ever hidden under
+                      another series' wash where the curves cross. */}
+                  {paths.map((p) => (
+                    <path key={`${p.key}-area`} d={p.area} fill={`url(#${gradientId}-${p.key})`} />
+                  ))}
+                  {/* Strokes in reverse, so invoiced - the envelope - is drawn last.
+                      Where a part equals the whole, as with an invoice paid in full,
+                      the neutral outline stays on top instead of vanishing under
+                      the coloured one and reading as "received, never invoiced". */}
+                  {[...paths].reverse().map((p) => (
+                    <path
+                      key={`${p.key}-line`}
+                      d={p.line}
+                      fill="none"
+                      style={{ stroke: p.color }}
+                      strokeWidth={p.strokeWidth}
+                      strokeLinejoin="round"
+                      strokeLinecap="round"
+                      vectorEffect="non-scaling-stroke"
+                    />
+                  ))}
+                </>
+              )}
             </svg>
 
             {isEmpty && (

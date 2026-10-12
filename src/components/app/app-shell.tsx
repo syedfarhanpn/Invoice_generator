@@ -6,15 +6,19 @@ import { usePathname } from "next/navigation"
 import {
   Briefcase,
   CalendarDays,
+  CalendarSync,
   ChevronsLeft,
   FileText,
   FolderKanban,
   LayoutGrid,
   ListChecks,
   LogOut,
+  LifeBuoy,
   Menu,
   Monitor,
   Moon,
+  ChartColumn,
+  Receipt,
   Settings,
   ShieldCheck,
   Sun,
@@ -29,7 +33,9 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { memberInitials } from "@/lib/member-names"
 import { isNavItemActive, type NavMatch } from "@/lib/nav"
+import type { Access, Module } from "@/lib/permissions"
 import { THEME_PREFERENCES, type ThemePreference } from "@/lib/theme"
 import { cn } from "@/lib/utils"
 import { getCollapsed, getServerCollapsed, subscribe, toggleCollapsed } from "./rail-store"
@@ -46,34 +52,82 @@ import { ReminderBell } from "./reminder-bell"
  * The application shell: a persistent rail, and a working area beside it.
  *
  * The rail lists only modules that exist. The reference design also shows
- * Expenses, Renewals, Domains, Tickets, Reports and Team Management; those
- * have no data model yet, and a nav entry leading to an empty screen is worse
- * than no entry. Each one is added here as its stage lands.
+ * Team Management, which has no screen yet; a nav entry leading to an empty
+ * screen is worse than no entry, so it lands with its stage.
+ *
+ * The entries are grouped once there are enough of them to scan rather than
+ * read: what you sell, what you run, and what the business costs.
  */
 
 export type NavItem = NavMatch & {
   href: string
   label: string
   icon: React.ComponentType<{ className?: string; strokeWidth?: number }>
+  /**
+   * Which permission governs this entry. Omitted for the overview, which
+   * everyone in a workspace can reach.
+   *
+   * Filtering the rail by this is a COURTESY, not a control - the page
+   * itself calls requirePermission(). Naming the module here is what keeps
+   * the two in step: a new module gets a nav entry and a gate from the same
+   * list of names.
+   */
+  module?: Module
+  /**
+   * For one entry that covers more than one module: Renewals holds AMCs
+   * (renewals) and infrastructure (domains) in one screen, and someone who
+   * may read either should see the way in. The page gates each half
+   * separately, and the tabs only offer what the viewer can actually read.
+   */
+  anyModule?: Module[]
 }
 
 type NavGroup = { label: string | null; items: NavItem[] }
 
 const WORKSPACE: NavItem[] = [
   { href: "/dashboard", match: "/dashboard", exact: true, label: "Overview", icon: LayoutGrid },
-  { href: "/crm", match: "/crm", label: "Sales & Leads", icon: Briefcase },
-  { href: "/dashboard/clients", match: "/dashboard/clients", label: "Clients", icon: UsersRound },
-  { href: "/projects", match: "/projects", label: "Projects", icon: FolderKanban },
-  { href: "/tasks", match: "/tasks", label: "Tasks", icon: ListChecks },
-  { href: "/calendar", match: "/calendar", label: "Calendar", icon: CalendarDays },
-  { href: "/dashboard/documents", match: "/dashboard/documents", label: "Documents", icon: FileText },
+  { href: "/crm", match: "/crm", label: "Sales & Leads", icon: Briefcase, module: "sales" },
+  { href: "/dashboard/clients", match: "/dashboard/clients", label: "Clients", icon: UsersRound, module: "clients" },
+  { href: "/projects", match: "/projects", label: "Projects", icon: FolderKanban, module: "projects" },
+  { href: "/tasks", match: "/tasks", label: "Tasks", icon: ListChecks, module: "tasks" },
+  { href: "/calendar", match: "/calendar", label: "Calendar", icon: CalendarDays, module: "calendar" },
+  { href: "/dashboard/documents", match: "/dashboard/documents", label: "Documents", icon: FileText, module: "documents" },
 ]
+
+/** Work that recurs rather than ships: contracts, infrastructure, support. */
+const SERVICES: NavItem[] = [
+  // One entry, because they are one table: AMCs, domains and hosting all
+  // renew on a date and all want the same five decisions. /domains redirects
+  // here so older links still land somewhere.
+  {
+    href: "/renewals",
+    match: "/renewals",
+    label: "Renewals",
+    icon: CalendarSync,
+    anyModule: ["renewals", "domains"],
+  },
+  { href: "/tickets", match: "/tickets", label: "Support Tickets", icon: LifeBuoy, module: "tickets" },
+]
+
+const FINANCE: NavItem[] = [
+  { href: "/expenses", match: "/expenses", label: "Expenses", icon: Receipt, module: "expenses" },
+  { href: "/reports", match: "/reports", label: "Reports", icon: ChartColumn, module: "reports" },
+]
+
+const TEAM: NavItem = {
+  href: "/team",
+  match: "/team",
+  label: "Team Management",
+  icon: UsersRound,
+  module: "team",
+}
 
 const ADMINISTRATION: NavItem = {
   href: "/dashboard/settings/business",
   match: "/dashboard/settings",
   label: "Settings",
   icon: Settings,
+  module: "settings",
 }
 
 /** Operator-only. Hiding it is cosmetic - requireSuperAdmin() is the gate. */
@@ -84,20 +138,35 @@ const ACCOUNTS: NavItem = {
   icon: ShieldCheck,
 }
 
-export function buildNav(isSuperAdmin: boolean): NavGroup[] {
+export function buildNav(
+  isSuperAdmin: boolean,
+  /** What the viewer may read. Null means no workspace, so nothing shows. */
+  matrix: Record<Module, Access> | null
+): NavGroup[] {
+  // An entry with no module is always shown; one with a module needs at
+  // least read, and one with anyModule needs read on at least one of them.
+  // Groups that empty out disappear with their heading rather than leaving
+  // a label over nothing.
+  const readable = (m: Module) => matrix != null && matrix[m] !== "none"
+  const allowed = (items: NavItem[]) =>
+    items.filter((item) => {
+      if (item.anyModule) return item.anyModule.some(readable)
+      return !item.module || readable(item.module)
+    })
+
   return [
-    { label: null, items: WORKSPACE },
-    { label: "Administration", items: isSuperAdmin ? [ACCOUNTS, ADMINISTRATION] : [ADMINISTRATION] },
-  ]
+    { label: null, items: allowed(WORKSPACE) },
+    { label: "Services", items: allowed(SERVICES) },
+    { label: "Finance", items: allowed(FINANCE) },
+    {
+      label: "Administration",
+      items: allowed(isSuperAdmin ? [ACCOUNTS, TEAM, ADMINISTRATION] : [TEAM, ADMINISTRATION]),
+    },
+  ].filter((group) => group.items.length > 0)
 }
 
-/** Two letters for the avatar, from a display name or failing that the address. */
-export function initials(name: string): string {
-  const base = (name.includes("@") ? name.split("@")[0] : name).trim()
-  const parts = base.split(/[\s._-]+/).filter(Boolean)
-  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase()
-  return base.slice(0, 2).toUpperCase() || "?"
-}
+/** Re-exported so the shell keeps one import, but there is one implementation. */
+export { memberInitials as initials } from "@/lib/member-names"
 
 // ---------------------------------------------------------------------------
 
@@ -181,11 +250,56 @@ function RailLink({
   )
 }
 
+/**
+ * The mark at the top of the rail.
+ *
+ * The logo uploaded in Settings - Business when there is one, and the
+ * built-in glyph when there is not. A plain <img>, not next/image: the file
+ * lives in Supabase storage under whatever project this deployment points
+ * at, and next/image would need that host whitelisted in next.config before
+ * it would render at all. The invoice header loads it the same way.
+ *
+ * onError falls the element back to the glyph rather than leaving the broken
+ * image icon in the corner of every page - a logo deleted straight out of the
+ * bucket should not look like the app is broken.
+ */
+function BrandMark({ logoUrl, brandName }: { logoUrl: string | null; brandName: string }) {
+  const [failed, setFailed] = useState(false)
+
+  if (logoUrl && !failed) {
+    return (
+      <span className="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-lg border bg-card">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={logoUrl}
+          alt={brandName}
+          className="size-full object-contain"
+          onError={() => setFailed(true)}
+        />
+      </span>
+    )
+  }
+
+  return (
+    <span className="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-foreground">
+      {/* The product mark, same glyph as the favicon. */}
+      <svg viewBox="0 0 24 24" className="size-5 text-background" aria-hidden>
+        <path
+          fill="currentColor"
+          d="M5 3h9a6 6 0 0 1 0 12H9.8l-4.8 6V14.4A6 6 0 0 1 9.4 9H14a1.5 1.5 0 0 0 0-3H5z"
+        />
+      </svg>
+    </span>
+  )
+}
+
 export function AppShell({
   email,
   displayName,
   brandName,
+  logoUrl,
   isSuperAdmin,
+  matrix,
   children,
 }: {
   email: string
@@ -193,11 +307,19 @@ export function AppShell({
   displayName?: string | null
   /** The operator's own company, from their business profile. */
   brandName: string
+  /** Their uploaded logo, from the same profile. Null uses the glyph. */
+  logoUrl?: string | null
   isSuperAdmin: boolean
+  /**
+   * What the viewer may read, resolved on the server by src/lib/access.ts.
+   * Used to decide which entries the rail shows - a courtesy, not a control.
+   * Every page behind these links calls requirePermission() for itself.
+   */
+  matrix: Record<Module, Access> | null
   children: React.ReactNode
 }) {
   const pathname = usePathname()
-  const groups = useMemo(() => buildNav(isSuperAdmin), [isSuperAdmin])
+  const groups = useMemo(() => buildNav(isSuperAdmin, matrix), [isSuperAdmin, matrix])
 
   const collapsed = useSyncExternalStore(subscribe, getCollapsed, getServerCollapsed)
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -213,15 +335,7 @@ export function AppShell({
           collapsed ? "justify-center px-0" : "px-5"
         )}
       >
-        <span className="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-foreground">
-          {/* The product mark, same glyph as the favicon. */}
-          <svg viewBox="0 0 24 24" className="size-5 text-background" aria-hidden>
-            <path
-              fill="currentColor"
-              d="M5 3h9a6 6 0 0 1 0 12H9.8l-4.8 6V14.4A6 6 0 0 1 9.4 9H14a1.5 1.5 0 0 0 0-3H5z"
-            />
-          </svg>
-        </span>
+        <BrandMark logoUrl={logoUrl ?? null} brandName={brandName} />
         {!collapsed && (
           <span className="truncate text-[15px] font-semibold tracking-tight">{brandName}</span>
         )}
@@ -332,7 +446,7 @@ export function AppShell({
                 }
               >
                 <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-accent text-xs font-semibold text-accent-foreground">
-                  {initials(name)}
+                  {memberInitials(name)}
                 </span>
                 <span className="hidden min-w-0 sm:block">
                   <span className="block truncate text-sm font-medium">

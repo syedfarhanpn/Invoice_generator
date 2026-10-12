@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useTransition } from "react"
+import { useRouter } from "next/navigation"
 import { Trash2 } from "lucide-react"
 
 import { archiveDeal, setNextAction, updateDeal } from "@/app/(workspace)/crm/actions"
@@ -16,6 +17,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import type { WorkspaceMember } from "@/lib/members"
 
 /**
  * Editing a lead.
@@ -30,6 +32,7 @@ export type DealDetailData = {
   id: string
   title: string
   clientId: string | null
+  assignedToId: string | null
   value: string
   source: string
   expectedCloseDate: string
@@ -43,16 +46,20 @@ export type ClientOption = { id: string; label: string }
 export function DealDetail({
   deal,
   clients,
+  members,
   onClose,
 }: {
   deal: DealDetailData | null
   clients: ClientOption[]
+  members: WorkspaceMember[]
   onClose: () => void
 }) {
   return (
     <Dialog open={deal != null} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-h-[85vh] overflow-y-auto">
-        {deal && <DealForm key={deal.id} deal={deal} clients={clients} onClose={onClose} />}
+        {deal && (
+          <DealForm key={deal.id} deal={deal} clients={clients} members={members} onClose={onClose} />
+        )}
       </DialogContent>
     </Dialog>
   )
@@ -61,20 +68,24 @@ export function DealDetail({
 function DealForm({
   deal,
   clients,
+  members,
   onClose,
 }: {
   deal: DealDetailData
   clients: ClientOption[]
+  members: WorkspaceMember[]
   onClose: () => void
 }) {
   const [title, setTitle] = useState(deal.title)
   const [clientId, setClientId] = useState(deal.clientId ?? "")
+  const [assignedToId, setAssignedToId] = useState(deal.assignedToId ?? "")
   const [value, setValue] = useState(deal.value)
   const [source, setSource] = useState(deal.source)
   const [closeDate, setCloseDate] = useState(deal.expectedCloseDate)
   const [description, setDescription] = useState(deal.description)
   const [actionTitle, setActionTitle] = useState(deal.nextActionTitle)
   const [actionDue, setActionDue] = useState(deal.nextActionDue)
+  const router = useRouter()
   const [error, setError] = useState<string | null>(null)
   const [confirmArchive, setConfirmArchive] = useState(false)
   const [pending, startTransition] = useTransition()
@@ -91,6 +102,7 @@ function DealForm({
           dealId: deal.id,
           title,
           clientId: clientId || null,
+          assignedToId: assignedToId || null,
           value: value || null,
           source: source || null,
           expectedCloseDate: closeDate || null,
@@ -99,6 +111,7 @@ function DealForm({
         if (actionTitle !== deal.nextActionTitle || actionDue !== deal.nextActionDue) {
           await setNextAction(deal.id, actionTitle, actionDue || null)
         }
+        router.refresh()
         onClose()
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : "That did not save.")
@@ -154,6 +167,23 @@ function DealForm({
               placeholder="25000"
             />
           </div>
+        </div>
+
+        <div className="space-y-1">
+          <Label htmlFor="deal-assignee">Assigned to</Label>
+          <select
+            id="deal-assignee"
+            value={assignedToId}
+            onChange={(e) => setAssignedToId(e.target.value)}
+            className="h-9 w-full rounded-md border bg-transparent px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <option value="">Unassigned</option>
+            {members.map((member) => (
+              <option key={member.id} value={member.id}>
+                {member.name}
+              </option>
+            ))}
+          </select>
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2">
@@ -225,6 +255,7 @@ function DealForm({
                   startTransition(async () => {
                     try {
                       await archiveDeal(deal.id)
+                      router.refresh()
                       onClose()
                     } catch {
                       setError("That lead could not be archived.")

@@ -5,7 +5,9 @@ import { revalidatePath } from "next/cache"
 
 import { assertStageInBoard, ensureBoard } from "@/lib/boards"
 import { compactPositions, positionsAfterMove } from "@/lib/ordering"
+import { assertPermission } from "@/lib/access"
 import { getCurrentUser } from "@/lib/current-user"
+import { currentOrgId, resolveAssignee } from "@/lib/members"
 import prisma from "@/lib/db"
 
 /**
@@ -50,6 +52,7 @@ export async function moveDeal(
   toStageId: string,
   toIndex: number
 ): Promise<MoveDealResult> {
+  await assertPermission("sales", "write")
   const user = await getCurrentUser()
   await assertStageInBoard(user.id, "LEADS", toStageId)
 
@@ -114,6 +117,7 @@ export async function moveDeal(
 }
 
 export async function createDeal(stageId: string, title: string) {
+  await assertPermission("sales", "write")
   const user = await getCurrentUser()
   const clean = title.trim()
   if (!clean) throw new Error("A lead needs a name.")
@@ -137,6 +141,7 @@ export async function createDeal(stageId: string, title: string) {
       // The CRM tables carry no column defaults - see src/lib/boards.ts.
       id: randomUUID(),
       userId: user.id,
+      orgId: await currentOrgId(user.id),
       pipelineId: board.id,
       stageId,
       title: clean,
@@ -162,11 +167,13 @@ export async function updateDeal(input: {
   dealId: string
   title: string
   clientId: string | null
+  assignedToId: string | null
   value: string | null
   source: string | null
   expectedCloseDate: string | null
   description: string | null
 }) {
+  await assertPermission("sales", "write")
   const user = await getCurrentUser()
   const title = input.title.trim()
   if (!title) throw new Error("A lead needs a name.")
@@ -188,11 +195,14 @@ export async function updateDeal(input: {
     clientId = client.id
   }
 
+  const assignedToId = await resolveAssignee(user.id, input.assignedToId)
+
   await prisma.deal.update({
     where: { id: input.dealId },
     data: {
       title,
       clientId,
+      assignedToId,
       value: parseAmount(input.value),
       source: input.source?.trim() || null,
       expectedCloseDate: parseDay(input.expectedCloseDate),
@@ -213,6 +223,7 @@ export async function updateDeal(input: {
  * of them would make that phrase meaningless. Clearing the title closes it.
  */
 export async function setNextAction(dealId: string, title: string, dueAt: string | null) {
+  await assertPermission("sales", "write")
   const user = await getCurrentUser()
 
   const deal = await prisma.deal.findFirst({
@@ -251,6 +262,7 @@ export async function setNextAction(dealId: string, title: string, dueAt: string
       data: {
         id: randomUUID(),
         userId: user.id,
+        orgId: await currentOrgId(user.id),
         dealId,
         title: clean,
         status: "OPEN",
@@ -269,6 +281,7 @@ export async function setNextAction(dealId: string, title: string, dueAt: string
 }
 
 export async function archiveDeal(dealId: string) {
+  await assertPermission("sales", "write")
   const user = await getCurrentUser()
   const deal = await prisma.deal.findFirst({
     where: { id: dealId, userId: user.id, archivedAt: null },

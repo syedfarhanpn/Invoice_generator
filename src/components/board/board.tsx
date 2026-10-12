@@ -389,7 +389,7 @@ export function Board({
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex flex-col">
       {error && (
         <div
           role="alert"
@@ -410,7 +410,9 @@ export function Board({
           setActiveId(null)
         }}
       >
-        <div className="flex flex-1 items-start gap-3 overflow-x-auto p-4">
+        {/* A floor so an empty board is still a drop target, and room to
+            grow so columns are never clipped. */}
+        <div className="flex min-h-96 items-start gap-3 overflow-x-auto p-4">
           {columns.map((column) => (
             <Column
               key={column.id}

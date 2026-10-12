@@ -3,6 +3,7 @@
 import prisma from "@/lib/db"
 import type { Prisma } from "@prisma/client"
 import { revalidatePath } from "next/cache"
+import { assertPermission } from "@/lib/access"
 import { getCurrentUser } from "@/lib/current-user"
 import { allocateRef, allocateReceiptRef } from "@/lib/allocate-ref"
 import { buildSnapshot } from "@/lib/snapshot"
@@ -38,6 +39,7 @@ export type UpdateDocumentInput = {
 }
 
 export async function updateDocument(id: string, data: UpdateDocumentInput) {
+  await assertPermission("documents", "write")
   const user = await getCurrentUser()
   const doc = await loadOwnedDocument(id, user.id)
 
@@ -94,6 +96,7 @@ export async function updateDocument(id: string, data: UpdateDocumentInput) {
 // all in one transaction so a document is never left half-numbered.
 // ---------------------------------------------------------------------------
 export async function finalizeDocument(id: string) {
+  await assertPermission("documents", "write")
   const user = await getCurrentUser()
   const doc = await prisma.document.findUnique({
     where: { id, userId: user.id },
@@ -159,6 +162,7 @@ export async function finalizeDocument(id: string) {
 // never burns an invoice number.
 // ---------------------------------------------------------------------------
 export async function convertToInvoice(id: string): Promise<{ invoiceId: string }> {
+  await assertPermission("documents", "write")
   const user = await getCurrentUser()
   const source = await prisma.document.findUnique({
     where: { id, userId: user.id },
@@ -247,6 +251,7 @@ export async function convertToInvoice(id: string): Promise<{ invoiceId: string 
 // Share link management
 // ---------------------------------------------------------------------------
 export async function regenerateShareLink(id: string) {
+  await assertPermission("documents", "write")
   const user = await getCurrentUser()
   const doc = await loadOwnedDocument(id, user.id)
   if (doc.status === "DRAFT") throw new Error("Finalize the document before sharing it.")
@@ -261,6 +266,7 @@ export async function regenerateShareLink(id: string) {
 }
 
 export async function revokeShareLink(id: string) {
+  await assertPermission("documents", "write")
   const user = await getCurrentUser()
   await loadOwnedDocument(id, user.id)
 
@@ -275,6 +281,7 @@ export async function revokeShareLink(id: string) {
 // Void / delete
 // ---------------------------------------------------------------------------
 export async function voidDocument(id: string) {
+  await assertPermission("documents", "write")
   const user = await getCurrentUser()
   const doc = await loadOwnedDocument(id, user.id)
   if (doc.status !== "FINALIZED" && doc.status !== "SIGNED") {
@@ -291,6 +298,7 @@ export async function voidDocument(id: string) {
 }
 
 export async function deleteDraftDocument(id: string) {
+  await assertPermission("documents", "write")
   const user = await getCurrentUser()
   const doc = await loadOwnedDocument(id, user.id)
   if (doc.status !== "DRAFT") {
@@ -324,6 +332,7 @@ async function resyncAmountPaid(tx: Prisma.TransactionClient, documentId: string
 }
 
 export async function recordPayment(documentId: string, input: RecordPaymentInput) {
+  await assertPermission("documents", "write")
   const user = await getCurrentUser()
   const doc = await loadOwnedDocument(documentId, user.id)
   // Only a real invoice is a receivable. Letting a quote or proforma carry
@@ -364,6 +373,7 @@ export async function recordPayment(documentId: string, input: RecordPaymentInpu
 }
 
 export async function deletePayment(documentId: string, paymentId: string) {
+  await assertPermission("documents", "write")
   const user = await getCurrentUser()
   await loadOwnedDocument(documentId, user.id)
 

@@ -4,7 +4,9 @@ import { revalidatePath } from "next/cache"
 
 import { assertStageInBoard, ensureBoard } from "@/lib/boards"
 import { compactPositions, positionsAfterMove } from "@/lib/ordering"
+import { assertPermission } from "@/lib/access"
 import { getCurrentUser } from "@/lib/current-user"
+import { currentOrgId, resolveAssignee } from "@/lib/members"
 import prisma from "@/lib/db"
 
 /**
@@ -44,6 +46,7 @@ async function renumberColumn(
 }
 
 export async function moveProject(projectId: string, toStageId: string, toIndex: number) {
+  await assertPermission("projects", "write")
   const user = await getCurrentUser()
   await assertStageInBoard(user.id, "PROJECTS", toStageId)
 
@@ -66,6 +69,7 @@ export async function moveProject(projectId: string, toStageId: string, toIndex:
 }
 
 export async function createProject(stageId: string, title: string) {
+  await assertPermission("projects", "write")
   const user = await getCurrentUser()
   const clean = title.trim()
   if (!clean) throw new Error("A project needs a title.")
@@ -88,6 +92,7 @@ export async function createProject(stageId: string, title: string) {
   await prisma.project.create({
     data: {
       userId: user.id,
+      orgId: await currentOrgId(user.id),
       pipelineId: board.id,
       stageId,
       title: clean,
@@ -108,6 +113,7 @@ export async function createProject(stageId: string, title: string) {
  * instead of a duplicate.
  */
 export async function startProjectFromDeal(dealId: string) {
+  await assertPermission("projects", "write")
   const user = await getCurrentUser()
 
   const deal = await prisma.deal.findFirst({
@@ -135,6 +141,7 @@ export async function startProjectFromDeal(dealId: string) {
   const project = await prisma.project.create({
     data: {
       userId: user.id,
+      orgId: await currentOrgId(user.id),
       pipelineId: board.id,
       stageId: first.id,
       clientId: deal.clientId,
@@ -163,10 +170,15 @@ export async function updateProject(input: {
   projectId: string
   title: string
   clientId: string | null
+  managerId: string | null
+  category: string | null
+  progress: string | null
   value: string | null
+  startedAt: string | null
   deadline: string | null
   description: string | null
 }) {
+  await assertPermission("projects", "write")
   const user = await getCurrentUser()
   const title = input.title.trim()
   if (!title) throw new Error("A project needs a title.")
@@ -187,12 +199,21 @@ export async function updateProject(input: {
     clientId = client.id
   }
 
+  const managerId = await resolveAssignee(user.id, input.managerId)
+
   await prisma.project.update({
     where: { id: input.projectId },
     data: {
       title,
       clientId,
+      managerId,
+      category: input.category?.trim() || null,
+      progress: parseProgress(input.progress),
       value: parseAmount(input.value),
+      // Only ever set by the convert-from-deal path until now, so most rows
+      // carry none and the list falls back to createdAt. Editable here so a
+      // project that began before it was entered can say so.
+      startedAt: parseDay(input.startedAt),
       deadline: parseDay(input.deadline),
       description: input.description?.trim() || null,
     },
@@ -203,6 +224,7 @@ export async function updateProject(input: {
 }
 
 export async function archiveProject(projectId: string) {
+  await assertPermission("projects", "write")
   const user = await getCurrentUser()
   const project = await prisma.project.findFirst({
     where: { id: projectId, userId: user.id, archivedAt: null },
@@ -219,6 +241,20 @@ export async function archiveProject(projectId: string) {
 
   revalidatePath("/projects")
   revalidatePath("/calendar")
+}
+
+/**
+ * A progress percentage, clamped rather than rejected.
+ *
+ * Someone typing 150 means "nearly there", not "abort the save". The database
+ * has a CHECK for the same range, so this is the friendly half of a guard that
+ * is enforced either way.
+ */
+function parseProgress(value: string | null | undefined): number | null {
+  if (value == null || value.trim() === "") return null
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return null
+  return Math.max(0, Math.min(100, Math.round(parsed)))
 }
 
 /** A money field as typed, or null. */

@@ -1,3 +1,4 @@
+import { requirePermission } from "@/lib/access"
 import type { PipelineKind } from "@prisma/client"
 
 import { ensureBoard } from "@/lib/boards"
@@ -36,6 +37,8 @@ const PANELS: { kind: PipelineKind; title: string; description: string }[] = [
 ]
 
 export default async function BoardSettingsPage() {
+  await requirePermission("settings", "read")
+
   const user = await getCurrentUser()
 
   const boards = await Promise.all(

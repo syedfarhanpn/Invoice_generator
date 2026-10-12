@@ -4,6 +4,7 @@ import { cookies } from "next/headers"
 import { revalidatePath } from "next/cache"
 
 import prisma from "@/lib/db"
+import { assertPermission } from "@/lib/access"
 import { getCurrentUser } from "@/lib/current-user"
 import { isOwnLogoUrl, LOGO_BUCKET } from "@/lib/logo-upload"
 import { createClient } from "@/utils/supabase/server"
@@ -21,6 +22,7 @@ import { createClient } from "@/utils/supabase/server"
  * make every invoice load an image from anywhere.
  */
 export async function setBusinessLogo(publicUrl: string) {
+  await assertPermission("settings", "write")
   const user = await getCurrentUser()
 
   const cookieStore = await cookies()
@@ -63,6 +65,7 @@ export async function setBusinessLogo(publicUrl: string) {
 
 /** Clears the logo. Leaves the stored object alone; only the reference goes. */
 export async function removeBusinessLogo() {
+  await assertPermission("settings", "write")
   const user = await getCurrentUser()
   await prisma.businessProfile.update({
     where: { userId: user.id },

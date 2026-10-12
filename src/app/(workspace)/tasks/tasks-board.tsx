@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useTransition } from "react"
+import { useRouter } from "next/navigation"
 
 import { Board, type BoardCard, type BoardColumn } from "@/components/board/board"
 import { Button } from "@/components/ui/button"
@@ -15,6 +16,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import type { WorkspaceMember } from "@/lib/members"
 
 import type { TaskDetail } from "./page"
 import { createTask, moveTask, scheduleTask } from "./actions"
@@ -30,10 +32,12 @@ export function TasksBoard({
   columns,
   cards,
   details,
+  members,
 }: {
   columns: BoardColumn[]
   cards: BoardCard[]
   details: Record<string, TaskDetail>
+  members: WorkspaceMember[]
 }) {
   const [openId, setOpenId] = useState<string | null>(null)
   const task = openId ? details[openId] : null
@@ -51,19 +55,31 @@ export function TasksBoard({
 
       <Dialog open={task != null} onOpenChange={(open) => !open && setOpenId(null)}>
         <DialogContent>
-          {task && <ScheduleForm task={task} onDone={() => setOpenId(null)} />}
+          {task && (
+            <ScheduleForm task={task} members={members} onDone={() => setOpenId(null)} />
+          )}
         </DialogContent>
       </Dialog>
     </>
   )
 }
 
-function ScheduleForm({ task, onDone }: { task: TaskDetail; onDone: () => void }) {
+function ScheduleForm({
+  task,
+  members,
+  onDone,
+}: {
+  task: TaskDetail
+  members: WorkspaceMember[]
+  onDone: () => void
+}) {
   const [title, setTitle] = useState(task.title)
+  const [assigneeId, setAssigneeId] = useState(task.assigneeId ?? "")
   const [dueAt, setDueAt] = useState(task.dueAtLocal)
   const [remindAt, setRemindAt] = useState(task.remindAtLocal)
   const [priority, setPriority] = useState(task.priority)
   const [notes, setNotes] = useState(task.notes ?? "")
+  const router = useRouter()
   const [error, setError] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
 
@@ -75,11 +91,13 @@ function ScheduleForm({ task, onDone }: { task: TaskDetail; onDone: () => void }
         await scheduleTask({
           taskId: task.id,
           title,
+          assigneeId: assigneeId || null,
           dueAt: dueAt || null,
           remindAt: remindAt || null,
           priority,
           notes,
         })
+        router.refresh()
         onDone()
       } catch {
         setError("That did not save. Nothing has been changed.")
@@ -132,6 +150,23 @@ function ScheduleForm({ task, onDone }: { task: TaskDetail; onDone: () => void }
         <p className="text-xs text-muted-foreground">
           Both are read in your own time. Leave the reminder empty to be told when it falls due.
         </p>
+
+        <div className="space-y-1">
+          <Label htmlFor="task-assignee">Assigned to</Label>
+          <select
+            id="task-assignee"
+            value={assigneeId}
+            onChange={(e) => setAssigneeId(e.target.value)}
+            className="h-9 w-full rounded-md border bg-transparent px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <option value="">Unassigned</option>
+            {members.map((member) => (
+              <option key={member.id} value={member.id}>
+                {member.name}
+              </option>
+            ))}
+          </select>
+        </div>
 
         <div className="space-y-1">
           <Label htmlFor="task-priority">Priority</Label>
