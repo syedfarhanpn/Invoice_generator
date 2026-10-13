@@ -138,6 +138,32 @@ describe("summariseExpenses", () => {
     expect(stats.thisWeek).toBe(150)
   })
 
+  it("measures the previous week over the same seven days, not a part-week", () => {
+    // NOW is 2026-10-08. This week is 10-01 onward; the one before it is
+    // 09-24 to 10-01. Anything older belongs to neither.
+    const stats = summariseExpenses(
+      [
+        expense({ amount: 150, spentOn: new Date("2026-10-05T12:00:00Z") }),
+        expense({ amount: 400, spentOn: new Date("2026-09-28T12:00:00Z") }),
+        expense({ amount: 999, spentOn: new Date("2026-09-10T12:00:00Z") }),
+      ],
+      "INR",
+      NOW
+    )
+
+    expect(stats.thisWeek).toBe(150)
+    expect(stats.previousWeek).toBe(400)
+  })
+
+  it("counts a week with nothing in it as zero rather than leaving it undefined", () => {
+    const stats = summariseExpenses(
+      [expense({ amount: 150, spentOn: new Date("2026-10-05T12:00:00Z") })],
+      "INR",
+      NOW
+    )
+    expect(stats.previousWeek).toBe(0)
+  })
+
   it("expresses recurring costs as a monthly commitment", () => {
     const stats = summariseExpenses(
       [

@@ -370,11 +370,11 @@ export function DocumentsTable({
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
                             <DropdownMenuItem
-                              onSelect={() => router.push(`/dashboard/documents/${doc.id}`)}
+                              onClick={() => router.push(`/dashboard/documents/${doc.id}`)}
                             >
                               Open document
                             </DropdownMenuItem>
-                            <DropdownMenuItem onSelect={() => setSelecting(true)}>
+                            <DropdownMenuItem onClick={() => setSelecting(true)}>
                               Select rows
                             </DropdownMenuItem>
                           </DropdownMenuContent>

@@ -39,6 +39,9 @@ export type ProjectRow = {
   stageName: string
   stageType: "OPEN" | "WON" | "LOST"
   stagePosition: number
+  /** ISO. When the card last moved - the closest thing to a completion date,
+   *  and what decides whether a finished project is still on the board. */
+  completedAt: string
   managerName: string | null
   /** ISO. The recorded start, falling back to when the card was made. */
   startedAt: string
@@ -260,21 +263,21 @@ function ProjectListRow({
               <MoreHorizontal className="size-4" strokeWidth={2} />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onSelect={() => onOpen(row.id)}>
+              <DropdownMenuItem onClick={() => onOpen(row.id)}>
                 Edit project
               </DropdownMenuItem>
               {/* Only when there is one. A menu entry that opens nothing is
                   worse than a shorter menu. */}
               {row.clientId && (
                 <DropdownMenuItem
-                  onSelect={() => router.push(`/dashboard/clients/${row.clientId}`)}
+                  onClick={() => router.push(`/dashboard/clients/${row.clientId}`)}
                 >
                   Open client
                 </DropdownMenuItem>
               )}
               <DropdownMenuItem
                 variant="destructive"
-                onSelect={() =>
+                onClick={() =>
                   startTransition(async () => {
                     await archiveProject(row.id)
                     router.refresh()

@@ -15,13 +15,10 @@ import {
   LogOut,
   LifeBuoy,
   Menu,
-  Monitor,
-  Moon,
   ChartColumn,
   Receipt,
   Settings,
   ShieldCheck,
-  Sun,
   UsersRound,
   X,
 } from "lucide-react"
@@ -31,20 +28,14 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { memberInitials } from "@/lib/member-names"
 import { isNavItemActive, type NavMatch } from "@/lib/nav"
 import type { Access, Module } from "@/lib/permissions"
-import { THEME_PREFERENCES, type ThemePreference } from "@/lib/theme"
 import { cn } from "@/lib/utils"
 import { getCollapsed, getServerCollapsed, subscribe, toggleCollapsed } from "./rail-store"
-import {
-  getPreference,
-  getServerPreference,
-  setPreference,
-  subscribe as subscribeTheme,
-} from "./theme-store"
 import { GlobalSearch } from "./global-search"
 import { ReminderBell } from "./reminder-bell"
 
@@ -82,20 +73,29 @@ export type NavItem = NavMatch & {
   anyModule?: Module[]
 }
 
-type NavGroup = { label: string | null; items: NavItem[] }
-
-const WORKSPACE: NavItem[] = [
+/**
+ * The rail, as one flat list.
+ *
+ * The headings are gone on purpose: with a dozen entries, grouping them under
+ * Services / Finance / Administration cost four lines of chrome to save
+ * nobody any scanning, and it made the rail taller than the list it was
+ * organising. Order carries the grouping now - what you work on, then what
+ * recurs, then the money, then the team.
+ *
+ * Documents sits beside Projects rather than after Calendar, because an
+ * invoice follows a project: that is the order the work happens in.
+ *
+ * Settings and Accounts are NOT here. They belong to the account rather than
+ * to the work, so they live in the avatar menu with Sign out.
+ */
+const NAV: NavItem[] = [
   { href: "/dashboard", match: "/dashboard", exact: true, label: "Overview", icon: LayoutGrid },
   { href: "/crm", match: "/crm", label: "Sales & Leads", icon: Briefcase, module: "sales" },
   { href: "/dashboard/clients", match: "/dashboard/clients", label: "Clients", icon: UsersRound, module: "clients" },
   { href: "/projects", match: "/projects", label: "Projects", icon: FolderKanban, module: "projects" },
+  { href: "/dashboard/documents", match: "/dashboard/documents", label: "Documents", icon: FileText, module: "documents" },
   { href: "/tasks", match: "/tasks", label: "Tasks", icon: ListChecks, module: "tasks" },
   { href: "/calendar", match: "/calendar", label: "Calendar", icon: CalendarDays, module: "calendar" },
-  { href: "/dashboard/documents", match: "/dashboard/documents", label: "Documents", icon: FileText, module: "documents" },
-]
-
-/** Work that recurs rather than ships: contracts, infrastructure, support. */
-const SERVICES: NavItem[] = [
   // One entry, because they are one table: AMCs, domains and hosting all
   // renew on a date and all want the same five decisions. /domains redirects
   // here so older links still land somewhere.
@@ -107,22 +107,13 @@ const SERVICES: NavItem[] = [
     anyModule: ["renewals", "domains"],
   },
   { href: "/tickets", match: "/tickets", label: "Support Tickets", icon: LifeBuoy, module: "tickets" },
-]
-
-const FINANCE: NavItem[] = [
   { href: "/expenses", match: "/expenses", label: "Expenses", icon: Receipt, module: "expenses" },
   { href: "/reports", match: "/reports", label: "Reports", icon: ChartColumn, module: "reports" },
+  { href: "/team", match: "/team", label: "Team Management", icon: UsersRound, module: "team" },
 ]
 
-const TEAM: NavItem = {
-  href: "/team",
-  match: "/team",
-  label: "Team Management",
-  icon: UsersRound,
-  module: "team",
-}
-
-const ADMINISTRATION: NavItem = {
+/** In the avatar menu rather than the rail: about the account, not the work. */
+const SETTINGS: NavItem = {
   href: "/dashboard/settings/business",
   match: "/dashboard/settings",
   label: "Settings",
@@ -138,74 +129,37 @@ const ACCOUNTS: NavItem = {
   icon: ShieldCheck,
 }
 
+/**
+ * An entry with no module is always shown; one with a module needs at least
+ * read, and one with anyModule needs read on at least one of them.
+ */
+function allowed(items: NavItem[], matrix: Record<Module, Access> | null): NavItem[] {
+  const readable = (m: Module) => matrix != null && matrix[m] !== "none"
+  return items.filter((item) => {
+    if (item.anyModule) return item.anyModule.some(readable)
+    return !item.module || readable(item.module)
+  })
+}
+
 export function buildNav(
-  isSuperAdmin: boolean,
   /** What the viewer may read. Null means no workspace, so nothing shows. */
   matrix: Record<Module, Access> | null
-): NavGroup[] {
-  // An entry with no module is always shown; one with a module needs at
-  // least read, and one with anyModule needs read on at least one of them.
-  // Groups that empty out disappear with their heading rather than leaving
-  // a label over nothing.
-  const readable = (m: Module) => matrix != null && matrix[m] !== "none"
-  const allowed = (items: NavItem[]) =>
-    items.filter((item) => {
-      if (item.anyModule) return item.anyModule.some(readable)
-      return !item.module || readable(item.module)
-    })
+): NavItem[] {
+  return allowed(NAV, matrix)
+}
 
-  return [
-    { label: null, items: allowed(WORKSPACE) },
-    { label: "Services", items: allowed(SERVICES) },
-    { label: "Finance", items: allowed(FINANCE) },
-    {
-      label: "Administration",
-      items: allowed(isSuperAdmin ? [ACCOUNTS, TEAM, ADMINISTRATION] : [TEAM, ADMINISTRATION]),
-    },
-  ].filter((group) => group.items.length > 0)
+/** Settings and Accounts, for the avatar menu. */
+export function buildAccountNav(
+  isSuperAdmin: boolean,
+  matrix: Record<Module, Access> | null
+): NavItem[] {
+  return allowed(isSuperAdmin ? [ACCOUNTS, SETTINGS] : [SETTINGS], matrix)
 }
 
 /** Re-exported so the shell keeps one import, but there is one implementation. */
 export { memberInitials as initials } from "@/lib/member-names"
 
 // ---------------------------------------------------------------------------
-
-const THEME_ICON: Record<ThemePreference, React.ComponentType<{ className?: string }>> = {
-  light: Sun,
-  dark: Moon,
-  system: Monitor,
-}
-
-const THEME_LABEL: Record<ThemePreference, string> = {
-  light: "Light",
-  dark: "Dark",
-  system: "System",
-}
-
-/**
- * Cycles rather than opening a menu: three states, and the icon always says
- * which one you are in, so a menu would be ceremony around a one-click choice.
- * The full radio group in Settings is still there for picking directly.
- */
-function ThemeCycle() {
-  const preference = useSyncExternalStore(subscribeTheme, getPreference, getServerPreference)
-  const Icon = THEME_ICON[preference]
-  const next =
-    THEME_PREFERENCES[(THEME_PREFERENCES.indexOf(preference) + 1) % THEME_PREFERENCES.length]
-  const label = `Theme: ${THEME_LABEL[preference]}. Switch to ${THEME_LABEL[next]}.`
-
-  return (
-    <button
-      type="button"
-      onClick={() => setPreference(next)}
-      title={label}
-      aria-label={label}
-      className="flex size-9 items-center justify-center rounded-lg text-muted-foreground transition-colors outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-    >
-      <Icon className="size-4.5" />
-    </button>
-  )
-}
 
 function RailLink({
   item,
@@ -319,12 +273,20 @@ export function AppShell({
   children: React.ReactNode
 }) {
   const pathname = usePathname()
-  const groups = useMemo(() => buildNav(isSuperAdmin, matrix), [isSuperAdmin, matrix])
+  const navItems = useMemo(() => buildNav(matrix), [matrix])
+  const accountItems = useMemo(
+    () => buildAccountNav(isSuperAdmin, matrix),
+    [isSuperAdmin, matrix]
+  )
 
   const collapsed = useSyncExternalStore(subscribe, getCollapsed, getServerCollapsed)
   const [mobileOpen, setMobileOpen] = useState(false)
 
   const name = displayName?.trim() || email
+  // The address makes a poor name, so when it is all we have the mailbox
+  // part reads better than the whole thing - and the full address is shown
+  // under it in the menu either way.
+  const displayLabel = name.includes("@") ? name.split("@")[0] : name
   const closeMobile = () => setMobileOpen(false)
 
   const rail = (
@@ -341,25 +303,15 @@ export function AppShell({
         )}
       </div>
 
-      <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-2" aria-label="Main">
-        {groups.map((group, i) => (
-          <div key={group.label ?? `group-${i}`} className="space-y-0.5">
-            {group.label && !collapsed && (
-              <div className="px-3 pt-1 pb-1.5 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
-                {group.label}
-              </div>
-            )}
-            {group.label && collapsed && <div className="mx-2 mb-1.5 h-px bg-sidebar-border" />}
-            {group.items.map((item) => (
-              <RailLink
-                key={item.href}
-                item={item}
-                active={isNavItemActive(pathname, item)}
-                collapsed={collapsed}
-                onNavigate={closeMobile}
-              />
-            ))}
-          </div>
+      <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 py-2" aria-label="Main">
+        {navItems.map((item) => (
+          <RailLink
+            key={item.href}
+            item={item}
+            active={isNavItemActive(pathname, item)}
+            collapsed={collapsed}
+            onNavigate={closeMobile}
+          />
         ))}
       </nav>
 
@@ -431,38 +383,66 @@ export function AppShell({
           </button>
 
           <div className="ml-auto flex shrink-0 items-center gap-1.5">
-            <GlobalSearch nav={groups.flatMap((g) => g.items)} />
+            {/* Search covers the account pages too, so they stay reachable by
+                name now that they have left the rail. */}
+            <GlobalSearch nav={[...navItems, ...accountItems]} />
             <ReminderBell />
-            <ThemeCycle />
 
+            {/* Avatar alone. Who you are is a thing you check occasionally,
+                not a thing the header needs to assert on every page - and the
+                name and role were the only items here that grew with their
+                content, so the row's width moved with whoever signed in.
+                Everything that was beside it now lives inside the menu. */}
             <DropdownMenu>
               <DropdownMenuTrigger
                 render={
                   <button
                     type="button"
-                    aria-label="Account"
-                    className="ml-1 flex items-center gap-2.5 rounded-lg p-1 pr-2 text-left transition-colors outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
+                    aria-label={`Account: ${displayLabel}`}
+                    className="ml-1 flex size-9 shrink-0 items-center justify-center rounded-full transition-colors outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
                   />
                 }
               >
                 <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-accent text-xs font-semibold text-accent-foreground">
                   {memberInitials(name)}
                 </span>
-                <span className="hidden min-w-0 sm:block">
-                  <span className="block truncate text-sm font-medium">
-                    {name.includes("@") ? name.split("@")[0] : name}
-                  </span>
-                  <span className="block truncate text-xs text-muted-foreground">
-                    {isSuperAdmin ? "Admin" : "Member"}
-                  </span>
-                </span>
               </DropdownMenuTrigger>
 
-              <DropdownMenuContent align="end" className="w-60">
-                <div className="truncate px-2 py-1.5 text-xs text-muted-foreground">{email}</div>
-                <DropdownMenuItem render={<Link href="/dashboard/settings/business" />}>
-                  <Settings className="mr-2 size-4" /> Settings
-                </DropdownMenuItem>
+              <DropdownMenuContent align="end" className="w-64">
+                <div className="flex items-center gap-2.5 px-2 py-2">
+                  <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-accent text-sm font-semibold text-accent-foreground">
+                    {memberInitials(name)}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium">{displayLabel}</span>
+                    {/* The address, because an initialled circle is not enough
+                        to tell two accounts apart when you are signed into
+                        the wrong one. */}
+                    <span className="block truncate text-xs text-muted-foreground">{email}</span>
+                  </span>
+                </div>
+
+                <div className="px-2 pb-2">
+                  <span className="inline-flex rounded-md bg-tone-info-bg px-2 py-0.5 text-xs font-medium text-tone-info">
+                    {isSuperAdmin ? "Admin" : "Member"}
+                  </span>
+                </div>
+
+                <DropdownMenuSeparator />
+
+                {/* Settings and Accounts live here rather than in the rail:
+                    they are about the account, not about the work. Each still
+                    carries its own module gate, so the menu shows only what
+                    the viewer may actually open. */}
+                {accountItems.map((item) => {
+                  const Icon = item.icon
+                  return (
+                    <DropdownMenuItem key={item.href} render={<Link href={item.href} />}>
+                      <Icon className="mr-2 size-4" /> {item.label}
+                    </DropdownMenuItem>
+                  )
+                })}
+
                 <form action={logout}>
                   <DropdownMenuItem
                     variant="destructive"

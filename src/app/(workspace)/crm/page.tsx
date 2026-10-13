@@ -3,6 +3,7 @@ import { BarChart3, Clock, Users } from "lucide-react"
 import { requirePermission } from "@/lib/access"
 import { GroupedBarChart } from "@/components/app/grouped-bar-chart"
 import { AddLead } from "@/components/workspace/add-lead"
+import { ImportLeads } from "@/components/workspace/import-leads"
 import { DonutChart } from "@/components/app/donut-chart"
 import { StatCard, StatRow } from "@/components/app/stat-card"
 import { DealTable, type DealRow, type StageColumn } from "@/components/workspace/deal-table"
@@ -175,7 +176,10 @@ export default async function CrmPage() {
               Manage your leads, follow-ups and conversions all in one place.
             </p>
           </div>
-          <AddLead stages={stages} />
+          <div className="flex items-center gap-2">
+            <ImportLeads stages={stages} />
+            <AddLead stages={stages} />
+          </div>
         </header>
 
         <StatRow>

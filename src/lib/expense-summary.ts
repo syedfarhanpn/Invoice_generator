@@ -37,6 +37,8 @@ export type ExpenseStats = {
   thisMonth: number
   previousMonth: number
   thisWeek: number
+  /** The seven days before those, so the two are the same length. */
+  previousWeek: number
   /** Disjoint by construction - see the note above. */
   projectTotal: number
   overheadTotal: number
@@ -105,13 +107,18 @@ export function summariseExpenses(
   const lastMonth = monthStart(now, 1)
   const sixBack = monthStart(now, 5)
   // Seven days back, not "since Monday": a rolling week is what you have
-  // actually spent lately, which is the question this card answers.
+  // actually spent lately, which is the question this card answers. The one
+  // before it is the same length ending where this one starts, so the two are
+  // comparable - "vs last week" against a part-week would always read as a
+  // fall, which is an artefact of the calendar rather than of spending.
   const weekAgo = new Date(now.getTime() - 7 * 86_400_000)
+  const twoWeeksAgo = new Date(now.getTime() - 14 * 86_400_000)
 
   let total = 0
   let thisMonthTotal = 0
   let previousMonthTotal = 0
   let thisWeekTotal = 0
+  let previousWeekTotal = 0
   let projectTotal = 0
   let overheadTotal = 0
   let pendingTotal = 0
@@ -137,6 +144,7 @@ export function summariseExpenses(
     if (expense.spentOn >= thisMonth) thisMonthTotal += amount
     else if (expense.spentOn >= lastMonth) previousMonthTotal += amount
     if (expense.spentOn >= weekAgo) thisWeekTotal += amount
+    else if (expense.spentOn >= twoWeeksAgo) previousWeekTotal += amount
 
     if (expense.scope === "PROJECT") projectTotal += amount
     else overheadTotal += amount
@@ -191,6 +199,7 @@ export function summariseExpenses(
     thisMonth: thisMonthTotal,
     previousMonth: previousMonthTotal,
     thisWeek: thisWeekTotal,
+    previousWeek: previousWeekTotal,
     projectTotal,
     overheadTotal,
     vendorCount: vendors.size,

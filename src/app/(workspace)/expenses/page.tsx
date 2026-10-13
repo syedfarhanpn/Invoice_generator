@@ -1,8 +1,9 @@
+import { BarChart3, PieChart } from "lucide-react"
+
 import { requirePermission } from "@/lib/access"
+import { AreaChart } from "@/components/app/area-chart"
 import { DonutChart } from "@/components/app/donut-chart"
-import { PageHeader } from "@/components/app/page-header"
 import { StatCard, StatRow } from "@/components/app/stat-card"
-import { TrendChart } from "@/components/app/trend-chart"
 import { formatShortDay } from "@/lib/dates"
 import prisma from "@/lib/db"
 import { DEFAULT_CATEGORIES } from "@/lib/expense-categories"
@@ -98,21 +99,45 @@ export default async function ExpensesPage() {
   ].filter((c) => c !== "Uncategorised")
 
   const monthChange = percentChange(stats.thisMonth, stats.previousMonth)
+  const weekChange = percentChange(stats.thisWeek, stats.previousWeek)
 
   return (
-    <div className="space-y-4 p-4 md:p-6">
-      <PageHeader title="Expenses" trail={[{ label: "Expenses" }]} />
+    <div className="space-y-5 p-4 md:p-6">
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Expenses</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Track and manage all your business expenses in one place.
+          </p>
+        </div>
+      </header>
 
       <StatRow>
         <StatCard
-          label="Spent this month"
+          variant="overview"
+          href="#expenses"
+          label="Total Expenses"
+          value={stats.total}
+          format="compactCurrency"
+          currency={currency}
+          icon="receipt"
+          delta={{
+            label: `${stats.transactionCount} transaction${stats.transactionCount === 1 ? "" : "s"}`,
+            direction: "flat",
+            caption: "all-time expenses",
+          }}
+        />
+        <StatCard
+          variant="overview"
+          href="#expenses"
+          label="Expenses This Month"
           value={stats.thisMonth}
           format="compactCurrency"
           currency={currency}
           icon="money"
           delta={
             monthChange == null
-              ? undefined
+              ? { label: "nothing last month", direction: "flat" }
               : {
                   label: formatDelta(monthChange),
                   direction: monthChange >= 0 ? "up" : "down",
@@ -123,73 +148,90 @@ export default async function ExpensesPage() {
           }
         />
         <StatCard
-          label="All time"
-          value={stats.total}
-          format="compactCurrency"
-          currency={currency}
-          icon="receipt"
-          hint={`${stats.transactionCount} transaction${stats.transactionCount === 1 ? "" : "s"}`}
-        />
-        <StatCard
-          label="Unsettled"
-          value={stats.pendingTotal}
-          format="compactCurrency"
-          currency={currency}
-          icon="late"
-          delta={
-            stats.pendingCount > 0
-              ? {
-                  label: `${stats.pendingCount} awaiting payment`,
-                  direction: "flat",
-                  inverted: true,
-                }
-              : { label: "all settled", direction: "flat" }
-          }
-        />
-        <StatCard
-          label="Committed monthly"
-          value={stats.recurringMonthly}
+          variant="overview"
+          href="#expenses"
+          label="Expenses This Week"
+          value={stats.thisWeek}
           format="compactCurrency"
           currency={currency}
           icon="deadline"
-          hint={
-            stats.recurringCount > 0
-              ? `${stats.recurringCount} recurring`
-              : "nothing recurring yet"
+          delta={
+            // A week with no spending is not "-100%". That is arithmetically
+            // right and reads as a collapse; what happened is that nothing
+            // was spent, and last week's figure is the useful context.
+            stats.thisWeek === 0
+              ? {
+                  label: "nothing this week",
+                  direction: "flat",
+                  caption:
+                    stats.previousWeek > 0
+                      ? `${formatCompactAmount(stats.previousWeek, currency)} the 7 before`
+                      : "last 7 days",
+                }
+              : weekChange == null
+                ? { label: "last 7 days", direction: "flat" }
+                : {
+                    label: formatDelta(weekChange),
+                    direction: weekChange >= 0 ? "up" : "down",
+                    caption: "vs the 7 before",
+                    inverted: true,
+                  }
           }
+        />
+        <StatCard
+          variant="overview"
+          href="#expenses"
+          label="Total Vendors"
+          value={stats.vendorCount}
+          format="integer"
+          icon="clients"
+          delta={{
+            label: stats.vendorCount > 0 ? "unique vendors" : "none recorded",
+            direction: "flat",
+            caption: stats.vendorCount > 0 ? "all time" : undefined,
+          }}
         />
       </StatRow>
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <section className="rounded-xl border bg-card p-5 lg:col-span-2">
-          <header className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
+      <div className="grid gap-4 lg:grid-cols-12">
+        <section className="rounded-xl border bg-card p-5 lg:col-span-8">
+          <header className="mb-3 flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 className="text-sm font-semibold">Spending</h2>
+              <h2 className="flex items-center gap-2 text-sm font-semibold">
+                <BarChart3 className="size-4 text-muted-foreground" strokeWidth={1.75} />
+                Expense Trends
+              </h2>
               <p className="mt-0.5 text-xs text-muted-foreground">
-                Per month, last six. Averaging {formatAmount(stats.averageMonthly, currency)} across
-                the months with any spend.
+                Per month, last six. Averaging {formatAmount(stats.averageMonthly, currency)}{" "}
+                across the months with any spend.
               </p>
             </div>
-            <span className="text-sm font-medium tabular-nums">
-              {formatAmount(stats.thisWeek, currency)}
-              <span className="ml-1.5 text-xs font-normal text-muted-foreground">last 7 days</span>
+            <span className="rounded-md border px-2 py-1 text-xs text-muted-foreground">
+              Last 6 months
             </span>
           </header>
-          <TrendChart
+          <AreaChart
             points={stats.trend.map((m) => ({ label: m.label, value: m.total }))}
             format="currency"
             currency={currency}
           />
         </section>
 
-        <section className="rounded-xl border bg-card p-5">
-          <h2 className="mb-4 text-sm font-semibold">By category</h2>
-          <DonutChart
-            slices={stats.byCategory}
-            centreLabel="spent"
-            format="compactCurrency"
-            currency={currency}
-          />
+        <section className="rounded-xl border bg-card p-5 lg:col-span-4">
+          <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold">
+            <PieChart className="size-4 text-muted-foreground" strokeWidth={1.75} />
+            Expenses by Category
+          </h2>
+          {stats.byCategory.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Nothing recorded yet.</p>
+          ) : (
+            <DonutChart
+              slices={stats.byCategory}
+              centreLabel="Total"
+              format="compactCurrency"
+              currency={currency}
+            />
+          )}
         </section>
       </div>
 
@@ -255,6 +297,7 @@ export default async function ExpensesPage() {
         </section>
       </div>
 
+      <div id="expenses" className="scroll-mt-20" />
       <ExpensesTable
         rows={rows}
         projects={projectOptions}

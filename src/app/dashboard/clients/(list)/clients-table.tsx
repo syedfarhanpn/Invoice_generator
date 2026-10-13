@@ -357,17 +357,17 @@ export function ClientsTable({ rows, currency }: { rows: ClientRow[]; currency: 
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
                             <DropdownMenuItem
-                              onSelect={() => router.push(`/dashboard/clients/${row.id}`)}
+                              onClick={() => router.push(`/dashboard/clients/${row.id}`)}
                             >
                               View client
                             </DropdownMenuItem>
                             <DropdownMenuItem
-                              onSelect={() => router.push(`/dashboard/clients/${row.id}/edit`)}
+                              onClick={() => router.push(`/dashboard/clients/${row.id}/edit`)}
                             >
                               Edit client
                             </DropdownMenuItem>
                             <DropdownMenuItem
-                              onSelect={() => router.push(`/dashboard/documents/new?client=${row.id}`)}
+                              onClick={() => router.push(`/dashboard/documents/new?client=${row.id}`)}
                             >
                               New document
                             </DropdownMenuItem>

@@ -58,6 +58,9 @@ export type BoardColumn = {
   id: string
   name: string
   type: "OPEN" | "WON" | "LOST"
+  /** A line under the heading, for a column that behaves unusually - the
+   *  Completed column clearing each Sunday, say. */
+  note?: string | null
 }
 
 const TONE_CLASS: Record<BoardTone, string> = {
@@ -226,12 +229,16 @@ function Column({
   column,
   cards,
   onAdd,
+  onRequestAdd,
   onOpen,
   addLabel,
 }: {
   column: BoardColumn
   cards: BoardCard[]
   onAdd: (stageId: string, title: string) => void
+  /** When given, adding opens the caller's own form instead of the inline
+   *  one-line input. */
+  onRequestAdd?: (stageId: string) => void
   onOpen?: (id: string) => void
   addLabel: string
 }) {
@@ -245,9 +252,14 @@ function Column({
         isOver && "border-ring/60 bg-accent/40"
       )}
     >
-      <header className="flex items-center justify-between gap-2 px-3 py-2.5">
-        <h3 className="truncate text-sm font-semibold">{column.name}</h3>
-        <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{cards.length}</span>
+      <header className="px-3 py-2.5">
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="truncate text-sm font-semibold">{column.name}</h3>
+          <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+            {cards.length}
+          </span>
+        </div>
+        {column.note && <p className="mt-0.5 text-xs text-muted-foreground">{column.note}</p>}
       </header>
 
       <div ref={setNodeRef} className="flex min-h-2 flex-1 flex-col gap-2 px-2 pb-1">
@@ -259,7 +271,20 @@ function Column({
       </div>
 
       <div className="p-2 pt-1">
-        <AddCard label={addLabel} onAdd={(title) => onAdd(column.id, title)} />
+        {onRequestAdd ? (
+          // The caller wants its own form - a project needs a client, a
+          // manager and dates, which is more than a one-line input can take.
+          <button
+            type="button"
+            onClick={() => onRequestAdd(column.id)}
+            className="flex w-full items-center gap-1.5 rounded-lg px-2 py-2 text-sm text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <Plus className="size-4" strokeWidth={2} />
+            {addLabel}
+          </button>
+        ) : (
+          <AddCard label={addLabel} onAdd={(title) => onAdd(column.id, title)} />
+        )}
       </div>
     </section>
   )
@@ -270,6 +295,7 @@ export function Board({
   cards,
   onMove,
   onCreate,
+  onRequestCreate,
   onOpen,
   addLabel = "Add a card",
 }: {
@@ -277,6 +303,9 @@ export function Board({
   cards: BoardCard[]
   onMove: (cardId: string, toStageId: string, toIndex: number) => Promise<void>
   onCreate: (stageId: string, title: string) => Promise<void>
+  /** When given, the add control defers to the caller instead of the inline
+   *  one-line input - for a card that needs a real form. */
+  onRequestCreate?: (stageId: string) => void
   onOpen?: (id: string) => void
   addLabel?: string
 }) {
@@ -419,6 +448,7 @@ export function Board({
               column={column}
               cards={byColumn.get(column.id) ?? []}
               onAdd={handleCreate}
+              onRequestAdd={onRequestCreate}
               onOpen={onOpen}
               addLabel={addLabel}
             />

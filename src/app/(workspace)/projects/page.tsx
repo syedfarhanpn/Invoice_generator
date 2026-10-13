@@ -56,6 +56,7 @@ export default async function ProjectsPage() {
         currency: true,
         startedAt: true,
         createdAt: true,
+        updatedAt: true,
         deadline: true,
         clientId: true,
         managerId: true,
@@ -109,6 +110,9 @@ export default async function ProjectsPage() {
     // The same substitution the reports make: a recorded start when there is
     // one, otherwise when the card was made.
     startedAt: (project.startedAt ?? project.createdAt).toISOString(),
+    // When the card last moved. The Completed column shows only this week's,
+    // and this is the closest thing to a completion date the schema has.
+    completedAt: project.updatedAt.toISOString(),
     deadline: project.deadline ? project.deadline.toISOString() : null,
     progress: project.progress,
     value: project.value != null ? Number(project.value) : null,

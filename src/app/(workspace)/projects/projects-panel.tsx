@@ -29,7 +29,19 @@ import { formatMoney } from "@/lib/money"
 import { pageSlice } from "@/lib/pagination"
 import { cn } from "@/lib/utils"
 
-import { archiveProject, createProject, moveProject, updateProject } from "./actions"
+import { nextResetLabel, withinCurrentWeek } from "@/lib/week-reset"
+
+import {
+  archiveProject,
+  createProject,
+  createProjectWithDetails,
+  moveProject,
+  updateProject,
+} from "./actions"
+import {
+  ProjectServicesPrompt,
+  type ServicesPromptTarget,
+} from "./project-services-prompt"
 
 /**
  * One set of projects, drawn two ways.
@@ -89,6 +101,20 @@ export function ProjectsPanel({
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [creatingIn, setCreatingIn] = useState<string | null>(null)
+  const [servicesFor, setServicesFor] = useState<ServicesPromptTarget | null>(null)
+
+  /**
+   * Wraps moveProject so a handover can raise the services prompt.
+   *
+   * The Board only wants a promise that resolves; the extra return value is
+   * read here rather than widening the board's contract, which three other
+   * screens share.
+   */
+  const handleMove = async (projectId: string, toStageId: string, toIndex: number) => {
+    const result = await moveProject(projectId, toStageId, toIndex)
+    if (result.offerServices) setServicesFor(result.offerServices)
+  }
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -107,6 +133,9 @@ export function ProjectsPanel({
         id: stage.id,
         name: stage.name,
         type: stage.type as BoardColumn["type"],
+        // Said on the column itself, because a card quietly vanishing from a
+        // board is otherwise indistinguishable from losing it.
+        note: stage.type === "WON" ? `This week only · clears ${nextResetLabel()}` : null,
       })),
     [stages]
   )
@@ -115,7 +144,13 @@ export function ProjectsPanel({
   // which is what keeps the two views honest with one another.
   const cards: BoardCard[] = useMemo(
     () =>
-      filtered.map((row) => {
+      filtered
+        // The Completed column is a worklist, not an archive. Everything
+        // older than Sunday keeps its row in the list view, its money in the
+        // figures and its place in reports - it just stops taking up a card.
+        // See lib/week-reset.ts for why this is derived rather than scheduled.
+        .filter((row) => row.stageType !== "WON" || withinCurrentWeek(row.completedAt))
+        .map((row) => {
         const badges: BoardCard["badges"] = []
         if (row.value != null) {
           badges.push({ label: formatMoney(row.value, row.currency || currency), tone: "muted" })
@@ -234,8 +269,9 @@ export function ProjectsPanel({
         <Board
           columns={columns}
           cards={cards}
-          onMove={moveProject}
+          onMove={handleMove}
           onCreate={createProject}
+          onRequestCreate={setCreatingIn}
           onOpen={setEditingId}
           addLabel="Add a project"
         />
@@ -284,21 +320,69 @@ export function ProjectsPanel({
           )}
         </DialogContent>
       </Dialog>
+
+      <Dialog open={creatingIn != null} onOpenChange={(open) => !open && setCreatingIn(null)}>
+        <DialogContent className="max-h-[85vh] overflow-y-auto">
+          {creatingIn && (
+            <ProjectForm
+              key={`new-${creatingIn}`}
+              project={blankProject()}
+              createInStage={creatingIn}
+              stageName={stages.find((s) => s.id === creatingIn)?.name ?? null}
+              clients={clients}
+              members={members}
+              onClose={() => setCreatingIn(null)}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <ProjectServicesPrompt target={servicesFor} onClose={() => setServicesFor(null)} />
     </div>
   )
 }
 
+/** An empty project, so the create and edit dialogs share one form. */
+function blankProject(): ProjectDetailData {
+  return {
+    id: "",
+    title: "",
+    clientId: null,
+    managerId: null,
+    category: "",
+    progress: "",
+    value: "",
+    startedAt: new Date().toISOString().slice(0, 10),
+    deadline: "",
+    description: "",
+    sourceDealTitle: null,
+  }
+}
+
+/**
+ * One form, two jobs.
+ *
+ * Create and edit ask for exactly the same facts, so forking them would mean
+ * two places to add the next field to and one of them being forgotten. The
+ * only difference is which action runs and what the heading says.
+ */
 function ProjectForm({
   project,
+  createInStage,
+  stageName,
   clients,
   members,
   onClose,
 }: {
   project: ProjectDetailData
+  /** Set when this is a new project, naming the column it lands in. */
+  createInStage?: string
+  stageName?: string | null
   clients: ClientOption[]
   members: WorkspaceMember[]
   onClose: () => void
 }) {
+  const isNew = createInStage != null
   const [title, setTitle] = useState(project.title)
   const [clientId, setClientId] = useState(project.clientId ?? "")
   const [managerId, setManagerId] = useState(project.managerId ?? "")
@@ -318,8 +402,7 @@ function ProjectForm({
     setError(null)
     startTransition(async () => {
       try {
-        await updateProject({
-          projectId: project.id,
+        const fields = {
           title,
           clientId: clientId || null,
           managerId: managerId || null,
@@ -329,7 +412,12 @@ function ProjectForm({
           startedAt: startedAt || null,
           deadline: deadline || null,
           description: description || null,
-        })
+        }
+        if (createInStage) {
+          await createProjectWithDetails({ stageId: createInStage, ...fields })
+        } else {
+          await updateProject({ projectId: project.id, ...fields })
+        }
         // revalidatePath clears the server cache; the client router still
         // holds its own copy for staleTimes.dynamic seconds. This is what
         // actually re-pulls the page.
@@ -344,11 +432,13 @@ function ProjectForm({
   return (
     <>
       <DialogHeader>
-        <DialogTitle>Edit project</DialogTitle>
+        <DialogTitle>{isNew ? "Add a project" : "Edit project"}</DialogTitle>
         <DialogDescription>
-          {project.sourceDealTitle
-            ? `Started from the deal "${project.sourceDealTitle}". Drag the card on the board to change its stage.`
-            : "Drag the card on the board to change its stage."}
+          {isNew
+            ? `It starts in ${stageName ?? "this column"}. Fill in what you know - everything here can be changed later.`
+            : project.sourceDealTitle
+              ? `Started from the deal "${project.sourceDealTitle}". Drag the card on the board to change its stage.`
+              : "Drag the card on the board to change its stage."}
         </DialogDescription>
       </DialogHeader>
 
@@ -484,7 +574,11 @@ function ProjectForm({
         {error && <p className="text-sm text-destructive">{error}</p>}
 
         <DialogFooter className="items-center gap-2 sm:justify-between">
-          {confirmArchive ? (
+          {isNew ? (
+            <Button type="button" variant="ghost" onClick={onClose}>
+              Cancel
+            </Button>
+          ) : confirmArchive ? (
             <span className="flex items-center gap-2 text-sm">
               <span className="text-muted-foreground">Archive this project?</span>
               <Button
@@ -528,7 +622,7 @@ function ProjectForm({
           )}
 
           <Button type="submit" disabled={pending}>
-            {pending ? "Saving..." : "Save"}
+            {pending ? "Saving..." : isNew ? "Add project" : "Save"}
           </Button>
         </DialogFooter>
       </form>

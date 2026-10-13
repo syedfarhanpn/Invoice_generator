@@ -1,10 +1,10 @@
 "use client"
 
-import { useTransition } from "react"
+import { useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import { Mail, MoreHorizontal, Phone } from "lucide-react"
 
-import { archiveDeal } from "@/app/(workspace)/crm/actions"
+import { archiveDeal, convertDealToClient } from "@/app/(workspace)/crm/actions"
 import { startProjectFromDeal } from "@/app/(workspace)/projects/actions"
 import {
   DropdownMenu,
@@ -114,6 +114,7 @@ function LeadRow({
 }) {
   const router = useRouter()
   const [pending, startTransition] = useTransition()
+  const [error, setError] = useState<string | null>(null)
 
   const name = row.contactName || row.clientName || row.title
 
@@ -142,6 +143,7 @@ function LeadRow({
           <Avatar name={name} />
           <span className="truncate font-medium">{name}</span>
         </span>
+        {error && <span className="mt-0.5 block text-xs text-destructive">{error}</span>}
       </td>
 
       <td className="px-3 py-2.5 text-muted-foreground">{row.clientName ?? "—"}</td>
@@ -213,11 +215,28 @@ function LeadRow({
               <MoreHorizontal className="size-4" strokeWidth={2} />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onSelect={() => onOpen(row.id)}>
-                View lead details
+              <DropdownMenuItem onClick={() => onOpen(row.id)}>View details</DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() =>
+                  startTransition(async () => {
+                    try {
+                      const { clientId } = await convertDealToClient(row.id)
+                      router.push(`/dashboard/clients/${clientId}`)
+                    } catch (cause) {
+                      // A lead with no email cannot become a client. Saying
+                      // which lead and why beats a menu item that does
+                      // nothing when you click it.
+                      setError(
+                        cause instanceof Error ? cause.message : "That could not be converted."
+                      )
+                    }
+                  })
+                }
+              >
+                Convert to client
               </DropdownMenuItem>
               <DropdownMenuItem
-                onSelect={() =>
+                onClick={() =>
                   startTransition(async () => {
                     await startProjectFromDeal(row.id)
                     router.refresh()
@@ -228,7 +247,7 @@ function LeadRow({
               </DropdownMenuItem>
               <DropdownMenuItem
                 variant="destructive"
-                onSelect={() =>
+                onClick={() =>
                   startTransition(async () => {
                     await archiveDeal(row.id)
                     router.refresh()
