@@ -1,6 +1,6 @@
 import { cache } from "react"
 import { redirect } from "next/navigation"
-import type { MemberRole, PermissionAccess } from "@prisma/client"
+import type { MemberRole, MemberStatus, PermissionAccess } from "@prisma/client"
 
 import { getCurrentUser } from "@/lib/current-user"
 import prisma from "@/lib/db"
@@ -43,6 +43,9 @@ export type Viewer = {
   membershipId: string | null
   orgId: string | null
   role: MemberRole | null
+  /** Exposed so getWorkspaceIdentity() can reuse this read rather than
+   *  issuing a second one for the same row. */
+  status: MemberStatus | null
   context: PermissionContext | null
 }
 
@@ -106,6 +109,7 @@ export const getViewer = cache(async (): Promise<Viewer> => {
       membershipId: null,
       orgId: null,
       role: null,
+      status: null,
       context: null,
     }
   }
@@ -138,6 +142,7 @@ export const getViewer = cache(async (): Promise<Viewer> => {
     membershipId: membership.id,
     orgId: membership.orgId,
     role: membership.role,
+    status: membership.status,
     context: {
       role: membership.role,
       status: membership.status,

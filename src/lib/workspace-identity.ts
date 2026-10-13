@@ -1,5 +1,6 @@
 import { cache } from "react"
 
+import { getViewer } from "@/lib/access"
 import { getCurrentUser, isSuperAdmin } from "@/lib/current-user"
 import { displayNameFor } from "@/lib/members"
 import prisma from "@/lib/db"
@@ -42,22 +43,29 @@ const FALLBACK_BRAND = "Pixie Webs"
 export const getWorkspaceIdentity = cache(async (): Promise<WorkspaceIdentity> => {
   const user = await getCurrentUser()
 
-  const [profile, membership] = await Promise.all([
+  // The membership comes from getViewer() rather than a second query for the
+  // same row. Every gated page calls requirePermission(), which calls
+  // getViewer(), and then calls this - so the two were reading the same
+  // Membership twice per request, on sixteen pages.
+  //
+  // Both are React.cache'd, so this is one round trip now and still re-reads
+  // on a new request. The status filter is kept exactly as it was: getViewer
+  // also admits SUSPENDED, and a suspended member had no identity here
+  // before. Widening that silently is not an optimisation.
+  const [profile, viewer] = await Promise.all([
     prisma.businessProfile.findUnique({
       where: { userId: user.id },
       select: { businessName: true, ownerName: true, logoUrl: true },
     }),
-    prisma.membership.findFirst({
-      where: { userId: user.id, status: { in: ["ACTIVE", "INVITED"] } },
-      orderBy: { createdAt: "asc" },
-      select: { id: true, orgId: true },
-    }),
+    getViewer(),
   ])
+
+  const inWorkspace = viewer.status === "ACTIVE" || viewer.status === "INVITED"
 
   return {
     userId: user.id,
-    orgId: membership?.orgId ?? null,
-    membershipId: membership?.id ?? null,
+    orgId: inWorkspace ? viewer.orgId : null,
+    membershipId: inWorkspace ? viewer.membershipId : null,
     email: user.email,
     displayName: displayNameFor({
       name: user.name,

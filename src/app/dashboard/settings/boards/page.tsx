@@ -41,37 +41,52 @@ export default async function BoardSettingsPage() {
 
   const user = await getCurrentUser()
 
-  const boards = await Promise.all(
-    PANELS.map(async (panel) => {
-      const board = await ensureBoard(user.id, panel.kind)
+  // Boards first, then ONE grouped count per kind.
+  //
+  // This used to issue a count per column per board - three boards of five
+  // columns was fifteen round trips, each waiting on the last board's
+  // ensureBoard before it even started. Three groupBy queries answer the same
+  // question: a column absent from the result simply holds nothing.
+  const boards = await Promise.all(PANELS.map((panel) => ensureBoard(user.id, panel.kind)))
 
-      // Occupancy per column, so deleting one can say what is in the way.
-      const counts = await Promise.all(
-        board.stages.map(async (stage) => {
-          const [deals, projects, tasks] = await Promise.all([
-            panel.kind === "LEADS"
-              ? prisma.deal.count({ where: { stageId: stage.id, archivedAt: null } })
-              : 0,
-            panel.kind === "PROJECTS"
-              ? prisma.project.count({ where: { stageId: stage.id, archivedAt: null } })
-              : 0,
-            panel.kind === "TASKS" ? prisma.task.count({ where: { stageId: stage.id } }) : 0,
-          ])
-          return deals + projects + tasks
-        })
-      )
+  const [dealCounts, projectCounts, taskCounts] = await Promise.all([
+    prisma.deal.groupBy({
+      by: ["stageId"],
+      where: { userId: user.id, archivedAt: null },
+      _count: { _all: true },
+    }),
+    prisma.project.groupBy({
+      by: ["stageId"],
+      where: { userId: user.id, archivedAt: null },
+      _count: { _all: true },
+    }),
+    prisma.task.groupBy({
+      by: ["stageId"],
+      where: { userId: user.id },
+      _count: { _all: true },
+    }),
+  ])
 
-      const stages: EditableStage[] = board.stages.map((stage, index) => ({
+  const occupancy = new Map<string, number>()
+  for (const row of [...dealCounts, ...projectCounts, ...taskCounts]) {
+    // A task can sit in no column at all, and those belong to no stage's
+    // occupancy - they are not what would block a column from being deleted.
+    if (!row.stageId) continue
+    occupancy.set(row.stageId, (occupancy.get(row.stageId) ?? 0) + row._count._all)
+  }
+
+  const panels = PANELS.map((panel, i) => ({
+    ...panel,
+    stages: boards[i].stages.map(
+      (stage): EditableStage => ({
         id: stage.id,
         name: stage.name,
         position: stage.position,
         type: stage.type,
-        count: counts[index] ?? 0,
-      }))
-
-      return { ...panel, stages }
-    })
-  )
+        count: occupancy.get(stage.id) ?? 0,
+      })
+    ),
+  }))
 
   return (
     <div className="mx-auto w-full max-w-4xl space-y-6">
@@ -82,7 +97,7 @@ export default async function BoardSettingsPage() {
         </p>
       </div>
 
-      {boards.map((board) => (
+      {panels.map((board) => (
         <StageEditor
           key={board.kind}
           kind={board.kind}

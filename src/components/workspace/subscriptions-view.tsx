@@ -479,9 +479,50 @@ function SubscriptionForm({
   const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }))
 
+  /**
+   * The checks a person can fail by typing, run before the round trip.
+   *
+   * The server validates all of this too and must keep doing so - this is a
+   * message, not a gate. But a thrown Server Action error is REDACTED in a
+   * production build: Next replaces the message with a generic one so server
+   * internals cannot leak through it, and the operator sees a React error
+   * code where a sentence should be. Saying it here is the only way the
+   * sentence survives, and it is faster anyway.
+   */
+  const validate = (): string | null => {
+    if (!form.name.trim()) {
+      return "Give this a name - the domain, or what the contract covers."
+    }
+    if (!form.renewsOn) {
+      return "Set the date it renews on."
+    }
+    if (form.startsOn && form.renewsOn < form.startsOn) {
+      // Both are YYYY-MM-DD, so a string comparison is a date comparison.
+      return "The renewal date cannot be before the start date."
+    }
+    for (const [label, value] of [
+      ["What it costs", form.cost],
+      ["What it is billed at", form.price],
+    ] as const) {
+      if (!value.trim()) continue
+      const parsed = Number(value.replace(/[^0-9.-]/g, ""))
+      if (!Number.isFinite(parsed) || parsed < 0) {
+        return `${label} must be a positive amount, or left empty.`
+      }
+    }
+    return null
+  }
+
   const submit = (event: React.FormEvent) => {
     event.preventDefault()
     setError(null)
+
+    const problem = validate()
+    if (problem) {
+      setError(problem)
+      return
+    }
+
     startTransition(async () => {
       try {
         const payload: SubscriptionInput = {
@@ -506,7 +547,17 @@ function SubscriptionForm({
         router.refresh()
         onClose()
       } catch (cause) {
-        setError(cause instanceof Error ? cause.message : "That did not save.")
+        // A production build redacts whatever the server threw, so its
+        // message is often a React error code rather than a sentence. The
+        // checks above catch everything a person can cause by typing; what
+        // reaches here is a real fault, and saying so is more honest than
+        // repeating a code nobody can act on.
+        const message = cause instanceof Error ? cause.message : ""
+        setError(
+          message && !/minified react error|digest/i.test(message)
+            ? message
+            : "That could not be saved. Check the dates and amounts, then try again."
+        )
       }
     })
   }
