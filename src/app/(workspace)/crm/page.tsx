@@ -1,10 +1,7 @@
-import { BarChart3, Clock, Users } from "lucide-react"
 
 import { requirePermission } from "@/lib/access"
-import { GroupedBarChart } from "@/components/app/grouped-bar-chart"
 import { AddLead } from "@/components/workspace/add-lead"
 import { ImportLeads } from "@/components/workspace/import-leads"
-import { DonutChart } from "@/components/app/donut-chart"
 import { StatCard, StatRow } from "@/components/app/stat-card"
 import { DealTable, type DealRow, type StageColumn } from "@/components/workspace/deal-table"
 import type { ClientOption, DealDetailData } from "@/components/workspace/deal-detail"
@@ -242,65 +239,6 @@ export default async function CrmPage() {
             }}
           />
         </StatRow>
-
-        <div className="grid gap-4 lg:grid-cols-12">
-          <section className="rounded-xl border bg-card p-5 lg:col-span-6">
-            <header className="mb-3 flex flex-wrap items-center justify-between gap-3">
-              <h2 className="flex items-center gap-2 text-sm font-semibold">
-                <BarChart3 className="size-4 text-muted-foreground" strokeWidth={1.75} />
-                Leads Trend
-              </h2>
-              <span className="flex flex-wrap items-center gap-3 text-xs">
-                <span className="flex items-center gap-1.5">
-                  <span className="size-2 rounded-full" style={{ background: "var(--chart-1)" }} />
-                  Total Leads
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <span className="size-2 rounded-full" style={{ background: "var(--chart-5)" }} />
-                  Qualified
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <span className="size-2 rounded-full" style={{ background: "var(--chart-2)" }} />
-                  Converted
-                </span>
-                <span className="rounded-md border px-2 py-1 text-muted-foreground">
-                  Last 6 months
-                </span>
-              </span>
-            </header>
-            <GroupedBarChart
-              points={stats.trend.map((m) => ({
-                label: m.label,
-                total: m.total,
-                qualified: m.qualified,
-                won: m.won,
-              }))}
-              series={[
-                { key: "total", label: "Total Leads", color: "var(--chart-1)" },
-                { key: "qualified", label: "Qualified", color: "var(--chart-5)" },
-                { key: "won", label: "Converted", color: "var(--chart-2)" },
-              ]}
-            />
-          </section>
-
-          <section className="rounded-xl border bg-card p-5 lg:col-span-3">
-            <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold">
-              <Users className="size-4 text-muted-foreground" strokeWidth={1.75} />
-              Leads by Source
-            </h2>
-            <DonutChart slices={stats.bySource} centreLabel="Total Leads" format="integer" />
-          </section>
-
-          <section className="rounded-xl border bg-card p-5 lg:col-span-3">
-            <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold">
-              <Clock className="size-4 text-muted-foreground" strokeWidth={1.75} />
-              Leads by Status
-            </h2>
-            <DonutChart slices={stats.byStage} centreLabel="Total Leads" format="integer" />
-          </section>
-        </div>
-
-
       </div>
 
       <DealTable
