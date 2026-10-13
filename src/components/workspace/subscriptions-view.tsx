@@ -476,8 +476,30 @@ function SubscriptionForm({
   const [confirmArchive, setConfirmArchive] = useState(false)
   const [pending, startTransition] = useTransition()
 
+  /**
+   * Whether the renewal date is still ours to fill in.
+   *
+   * A new row starts with an empty date, so the start date and cycle decide
+   * it - a yearly domain registered on 13 October renews on 13 October next
+   * year, and typing that again is work nobody should do. The moment the
+   * operator edits the field themselves this goes false and we stop touching
+   * it, because a form that keeps overwriting what you typed is worse than
+   * one that never helped. An existing row is never auto-filled at all.
+   */
+  const [dateIsOurs, setDateIsOurs] = useState(!row.id && !row.renewsOn)
+
   const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }))
+
+  /** Changing the start date or the cycle re-derives the renewal date. */
+  const setAndDerive = (key: "startsOn" | "cycle", value: string) =>
+    setForm((prev) => {
+      const next = { ...prev, [key]: value }
+      if (dateIsOurs) {
+        next.renewsOn = nextRenewalDay(next.startsOn, next.cycle as BillingCycle)
+      }
+      return next
+    })
 
   /**
    * The checks a person can fail by typing, run before the round trip.

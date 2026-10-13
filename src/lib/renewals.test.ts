@@ -6,6 +6,7 @@ import {
   daysUntil,
   describeRenewal,
   monthlyEquivalent,
+  nextRenewalDay,
   nextOccurrence,
   urgencyOf,
 } from "./renewals"
@@ -147,5 +148,42 @@ describe("cycle equivalents", () => {
     expect(annualEquivalent(100, "MONTHLY")).toBe(1200)
     // A three-year registration costs a third of itself per year.
     expect(annualEquivalent(3600, "TRIENNIAL")).toBe(1200)
+  })
+})
+
+describe("nextRenewalDay", () => {
+  it("moves a yearly registration to the same day next year", () => {
+    expect(nextRenewalDay("2026-10-13", "YEARLY")).toBe("2027-10-13")
+  })
+
+  it("handles every cycle the form offers", () => {
+    expect(nextRenewalDay("2026-01-15", "MONTHLY")).toBe("2026-02-15")
+    expect(nextRenewalDay("2026-01-15", "QUARTERLY")).toBe("2026-04-15")
+    expect(nextRenewalDay("2026-01-15", "HALF_YEARLY")).toBe("2026-07-15")
+    expect(nextRenewalDay("2026-01-15", "BIENNIAL")).toBe("2028-01-15")
+    expect(nextRenewalDay("2026-01-15", "TRIENNIAL")).toBe("2029-01-15")
+  })
+
+  it("keeps the day it was given rather than drifting a day either way", () => {
+    // The bug this guards: parsing "2026-10-13" as local midnight and
+    // formatting back in UTC loses a day east of Greenwich.
+    for (const day of ["2026-01-01", "2026-06-30", "2026-12-31"]) {
+      expect(nextRenewalDay(day, "YEARLY").slice(5)).toBe(day.slice(5))
+    }
+  })
+
+  it("clamps a month-end date instead of skidding into the next month", () => {
+    // 31 January plus a month is 28 February, not 2 or 3 March.
+    expect(nextRenewalDay("2026-01-31", "MONTHLY")).toBe("2026-02-28")
+  })
+
+  it("lands on 29 February in a leap year", () => {
+    expect(nextRenewalDay("2028-01-29", "MONTHLY")).toBe("2028-02-29")
+  })
+
+  it("returns nothing for input it cannot read, rather than a guess", () => {
+    expect(nextRenewalDay("", "YEARLY")).toBe("")
+    expect(nextRenewalDay("13-10-2026", "YEARLY")).toBe("")
+    expect(nextRenewalDay("not a date", "YEARLY")).toBe("")
   })
 })

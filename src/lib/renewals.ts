@@ -127,6 +127,28 @@ export function nextOccurrence(renewsOn: Date, cycle: BillingCycle, now = new Da
   return next
 }
 
+/**
+ * The date a thing starting on `startsOn` would next come due.
+ *
+ * Works in the "YYYY-MM-DD" a date input uses, so a form can fill the field
+ * in as soon as the start date and the cycle are known. A yearly domain
+ * registered on 13 October renews on 13 October next year, which is right
+ * often enough that the operator only has to correct the exceptions.
+ *
+ * Parsed as UTC rather than through `new Date("2026-10-13")`'s local
+ * reading, so the day that comes back is the day that was typed. Returns ""
+ * for anything unparseable - a form field should be left alone rather than
+ * filled with a guess.
+ */
+export function nextRenewalDay(startsOn: string, cycle: BillingCycle): string {
+  const match = startsOn.trim().match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (!match) return ""
+  const [, year, month, day] = match
+  const from = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)))
+  if (Number.isNaN(from.getTime())) return ""
+  return advanceByCycle(from, cycle).toISOString().slice(0, 10)
+}
+
 export type RenewalUrgency = "overdue" | "due" | "soon" | "upcoming" | "later"
 
 /** Days-remaining thresholds. Exported so the UI legend cannot drift. */
