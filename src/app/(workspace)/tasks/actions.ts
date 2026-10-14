@@ -6,6 +6,7 @@ import type { TaskPriority } from "@prisma/client"
 
 import { assertStageInBoard, ensureBoard } from "@/lib/boards"
 import { compactPositions, positionsAfterMove } from "@/lib/ordering"
+import { renumber } from "@/lib/renumber"
 import { assertPermission } from "@/lib/access"
 import { getCurrentUser } from "@/lib/current-user"
 import { currentOrgId, resolveAssignee } from "@/lib/members"
@@ -41,9 +42,8 @@ async function renumberColumn(
       ? positionsAfterMove(rows, movedId, toIndex)
       : compactPositions(rows)
 
-  for (const { id, position } of ordered) {
-    await tx.task.update({ where: { id }, data: { position } })
-  }
+  // One statement, not one per card - see the note in lib/renumber.ts.
+  await renumber(tx, "task", userId, ordered)
 }
 
 export async function moveTask(taskId: string, toStageId: string, toIndex: number) {

@@ -1,4 +1,5 @@
 "use client"
+import type { BillingCycle } from "@prisma/client"
 
 import { useMemo, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
@@ -19,7 +20,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { formatAmount } from "@/lib/format-compact"
 import { pageSlice } from "@/lib/pagination"
-import { URGENCY_LABEL, type RenewalUrgency } from "@/lib/renewals"
+import { nextRenewalDay, URGENCY_LABEL, type RenewalUrgency } from "@/lib/renewals"
 import { cn } from "@/lib/utils"
 
 import {
@@ -691,7 +692,7 @@ function SubscriptionForm({
               id="sub-starts"
               type="date"
               value={form.startsOn}
-              onChange={(e) => set("startsOn", e.target.value)}
+              onChange={(e) => setAndDerive("startsOn", e.target.value)}
               required
             />
           </div>
@@ -701,7 +702,10 @@ function SubscriptionForm({
               id="sub-renews"
               type="date"
               value={form.renewsOn}
-              onChange={(e) => set("renewsOn", e.target.value)}
+              onChange={(e) => {
+                setDateIsOurs(false)
+                set("renewsOn", e.target.value)
+              }}
               required
             />
           </div>
@@ -710,7 +714,7 @@ function SubscriptionForm({
             <select
               id="sub-cycle"
               value={form.cycle}
-              onChange={(e) => set("cycle", e.target.value)}
+              onChange={(e) => setAndDerive("cycle", e.target.value)}
               className="h-9 w-full rounded-md border bg-transparent px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               {CYCLES.map((c) => (

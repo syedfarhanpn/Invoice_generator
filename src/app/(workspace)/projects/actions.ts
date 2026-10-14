@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 
 import { assertStageInBoard, ensureBoard } from "@/lib/boards"
 import { compactPositions, positionsAfterMove } from "@/lib/ordering"
+import { renumber } from "@/lib/renumber"
 import { assertPermission } from "@/lib/access"
 import { getCurrentUser } from "@/lib/current-user"
 import { currentOrgId, resolveAssignee } from "@/lib/members"
@@ -40,9 +41,8 @@ async function renumberColumn(
 
   // Sequential, not Promise.all: an interactive transaction is one connection
   // and parallel writes on it are not worth the risk for tens of rows.
-  for (const { id, position } of ordered) {
-    await tx.project.update({ where: { id }, data: { position } })
-  }
+  // One statement, not one per card - see the note in lib/renumber.ts.
+  await renumber(tx, "project", userId, ordered)
 }
 
 /**

@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache"
 
 import { assertStageInBoard, ensureBoard } from "@/lib/boards"
 import { compactPositions, positionsAfterMove } from "@/lib/ordering"
+import { renumber } from "@/lib/renumber"
 import { assertPermission } from "@/lib/access"
 import { getCurrentUser } from "@/lib/current-user"
 import { allocateClientNumber } from "@/lib/allocate-ref"
@@ -38,9 +39,10 @@ async function renumberColumn(
       ? positionsAfterMove(rows, movedId, toIndex)
       : compactPositions(rows)
 
-  for (const { id, position } of ordered) {
-    await tx.deal.update({ where: { id }, data: { position } })
-  }
+  // One statement, not one per card. See the note in lib/renumber.ts: the
+  // loop this replaces timed the transaction out once a column held a few
+  // hundred leads, and refused moves that were perfectly legal.
+  await renumber(tx, "deal", userId, ordered)
 }
 
 export type MoveDealResult = {
