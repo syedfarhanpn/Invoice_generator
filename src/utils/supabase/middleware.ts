@@ -5,11 +5,11 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 
 /**
- * Paths that never carry a dashboard session: the public share pages a client
- * opens, and the REST surface, which authenticates with an API key rather than
- * cookies (see src/lib/api/auth.ts). Returning before the Supabase client is
- * built keeps a shared invoice link from paying for session handling it has no
- * use for.
+ * Paths that never carry a dashboard session: the shared documents and client
+ * portal a client opens, and the REST surface, which authenticates with an API
+ * key rather than cookies (see src/lib/api/auth.ts). Returning before the
+ * Supabase client is built keeps a shared link from paying for session
+ * handling it has no use for.
  */
 const SESSIONLESS_PREFIXES = ["/share", "/api/"]
 
@@ -21,7 +21,7 @@ const SESSIONLESS_PREFIXES = ["/share", "/api/"]
  * getCurrentUser() redirects before any query - but that costs a render and a
  * database round trip to reach the same answer this gets to for free.
  */
-const PROTECTED_PREFIXES = ["/dashboard", "/crm", "/projects", "/tasks", "/calendar"]
+const PROTECTED_PREFIXES = ["/dashboard", "/crm", "/projects", "/tasks", "/calendar", "/portal"]
 
 export const updateSession = async (request: NextRequest) => {
   if (SESSIONLESS_PREFIXES.some((prefix) => request.nextUrl.pathname.startsWith(prefix))) {

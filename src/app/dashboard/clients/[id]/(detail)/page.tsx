@@ -5,6 +5,9 @@ import { Badge } from "@/components/ui/badge"
 import Link from "next/link"
 import prisma from "@/lib/db"
 import { notFound } from "next/navigation"
+
+import { PortalAccess } from "@/components/app/portal-access"
+import { formatTableDay } from "@/lib/dates"
 import { getCurrentUser } from "@/lib/current-user"
 import { archiveClient } from "../../actions"
 import { LifecycleBadge, PaymentBadge } from "@/components/app/status-badge"
@@ -173,6 +176,13 @@ export default async function ClientProfilePage(props: { params: Promise<{ id: s
           </Card>
         </div>
       </div>
+
+      <PortalAccess
+        clientId={client.id}
+        clientEmail={client.email}
+        invitedOn={client.portalInvitedAt ? formatTableDay(client.portalInvitedAt) : null}
+        activeSince={client.portalEnabledAt ? formatTableDay(client.portalEnabledAt) : null}
+      />
     </div>
   )
 }

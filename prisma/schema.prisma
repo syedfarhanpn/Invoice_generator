@@ -425,6 +425,23 @@ model Client {
   // duplicate.
   externalId   String?
   sourceSystem String?
+
+  /// Client portal access.
+  ///
+  /// A client signs in with their own Supabase account - they are NOT a
+  /// workspace User, and must never become one: getCurrentUser() is fail
+  /// closed, so an account with no User row cannot reach the dashboard at
+  /// all. The portal resolves the client from this id instead.
+  ///
+  /// Stored as the Supabase auth uid rather than matching on email, so
+  /// changing a client's contact address cannot silently hand their portal
+  /// to somebody else. Null means no account has been claimed yet.
+  portalUserId    String?   @unique
+  /// When an invitation was last sent. Null once revoked.
+  portalInvitedAt DateTime?
+  /// When they first signed in. Null while the invitation is outstanding.
+  portalEnabledAt DateTime?
+
   archivedAt      DateTime?
 
   // Per-client serial counters. Incremented transactionally in

@@ -5,6 +5,8 @@ import { assertPermission } from "@/lib/access"
 import { getCurrentUser } from "@/lib/current-user"
 import { normalizeClientCode, suggestClientCode } from "@/lib/client-code"
 import { allocateClientNumber } from "@/lib/allocate-ref"
+import { sendPortalInvite, type InviteOutcome } from "@/lib/invites"
+import { getWorkspaceIdentity } from "@/lib/workspace-identity"
 import { revalidatePath } from "next/cache"
 
 // Note: these actions return { id } instead of calling redirect() themselves.
@@ -140,4 +142,78 @@ export async function archiveClient(id: string, archived: boolean) {
   })
   revalidatePath("/dashboard/clients")
   revalidatePath(`/dashboard/clients/${id}`)
+}
+
+
+/**
+ * Invites a client to their portal, or sends the invitation again.
+ *
+ * One action for both, because they do the same thing: generate a fresh
+ * sign-in link and email it. Re-inviting does not disturb an account that
+ * has already been claimed - the link just lets them set a new password.
+ */
+export async function invitePortalClient(
+  clientId: string,
+  note?: string | null
+): Promise<InviteOutcome> {
+  await assertPermission("clients", "write")
+  const user = await getCurrentUser()
+
+  const client = await prisma.client.findFirst({
+    where: { id: clientId, userId: user.id, archivedAt: null },
+    select: { id: true, email: true, fullName: true, businessName: true },
+  })
+  if (!client) throw new Error("That client no longer exists.")
+  if (!client.email?.trim()) {
+    throw new Error("This client has no email address. Add one before inviting them.")
+  }
+
+  const identity = await getWorkspaceIdentity()
+
+  const outcome = await sendPortalInvite({
+    email: client.email.trim(),
+    clientName: client.businessName || client.fullName,
+    note: note?.trim() || null,
+    brandName: identity.brandName,
+    inviterName: identity.displayName,
+    replyTo: identity.email,
+  })
+
+  // Recorded even when the email failed: the invitation exists, the link in
+  // the result still works, and portal-auth.ts needs this set before it will
+  // let a sign-in claim the client row.
+  await prisma.client.update({
+    where: { id: clientId },
+    data: { portalInvitedAt: new Date() },
+  })
+
+  revalidatePath(`/dashboard/clients/${clientId}`)
+  return outcome
+}
+
+/**
+ * Takes portal access away.
+ *
+ * Clears both the invitation and the claimed account, so an outstanding
+ * link can no longer be used to claim the row and an account that already
+ * signed in stops resolving to this client. The Supabase auth user is left
+ * alone - deleting someone's login because a business relationship ended is
+ * not ours to do, and it may be attached to something else.
+ */
+export async function revokePortalAccess(clientId: string) {
+  await assertPermission("clients", "write")
+  const user = await getCurrentUser()
+
+  const client = await prisma.client.findFirst({
+    where: { id: clientId, userId: user.id },
+    select: { id: true },
+  })
+  if (!client) throw new Error("That client no longer exists.")
+
+  await prisma.client.update({
+    where: { id: clientId },
+    data: { portalUserId: null, portalInvitedAt: null, portalEnabledAt: null },
+  })
+
+  revalidatePath(`/dashboard/clients/${clientId}`)
 }

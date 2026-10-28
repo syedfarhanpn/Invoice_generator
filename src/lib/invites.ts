@@ -1,6 +1,7 @@
 import type { MemberRole } from "@prisma/client"
 
 import { renderInviteEmail } from "@/lib/email/invite-email"
+import { renderPortalInviteEmail } from "@/lib/email/portal-invite-email"
 import { mailerConfigured, sendEmail } from "@/lib/email/mailer"
 import { adminClientConfigured, createAdminClient } from "@/lib/supabase-admin"
 
@@ -174,4 +175,95 @@ async function generate(
   // Nothing to verify with. The provider link is a worse experience but is
   // better than handing the operator nothing at all.
   return { url: data?.properties?.action_link ?? null, error: null }
+}
+
+/**
+ * Invites a CLIENT to their portal.
+ *
+ * Shares the link machinery with the team invite and nothing else. The
+ * account it creates is a Supabase auth user with no workspace `User` row,
+ * which is what keeps a client out of the dashboard: getCurrentUser() is
+ * fail closed and refuses an account it has no User row for.
+ *
+ * The redirect lands on /auth/confirm like every other auth email, which
+ * forwards to /auth/set-password. From there the client signs in and
+ * lib/portal-auth.ts binds the account to their client row.
+ */
+export async function sendPortalInvite(details: {
+  email: string
+  clientName: string
+  note: string | null
+  brandName: string
+  inviterName: string | null
+  replyTo: string | null
+}): Promise<InviteOutcome> {
+  if (!adminClientConfigured()) {
+    return {
+      actionUrl: null,
+      emailed: false,
+      problem:
+        "No sign-in link could be created: SUPABASE_SERVICE_ROLE_KEY is not set. Add it to the environment, then invite them again.",
+    }
+  }
+
+  const admin = createAdminClient()
+  if (!admin) {
+    return { actionUrl: null, emailed: false, problem: "The Supabase admin client is unavailable." }
+  }
+
+  const redirectTo = `${siteUrl()}/auth/confirm`
+
+  // "invite" creates the auth user. An address that already has one - a
+  // client who was invited before, or who is also a team member elsewhere -
+  // fails that call, and a recovery link does the same job: it proves the
+  // mailbox and lets them set a password.
+  let link = await generate(admin, "invite", details.email, redirectTo)
+  if (!link.url) {
+    const recovery = await generate(admin, "recovery", details.email, redirectTo)
+    if (recovery.url) link = recovery
+  }
+
+  if (!link.url) {
+    return {
+      actionUrl: null,
+      emailed: false,
+      problem: link.error ?? "No sign-in link could be created for that address.",
+    }
+  }
+
+  if (!mailerConfigured()) {
+    return {
+      actionUrl: link.url,
+      emailed: false,
+      problem:
+        "Email is not set up, so nothing was sent. Copy the link below and send it to them yourself.",
+    }
+  }
+
+  const { subject, html, text } = renderPortalInviteEmail({
+    brandName: details.brandName,
+    inviterName: details.inviterName,
+    clientName: details.clientName,
+    email: details.email,
+    note: details.note,
+    actionUrl: link.url,
+  })
+
+  const sent = await sendEmail({
+    to: details.email,
+    subject,
+    html,
+    text,
+    replyTo: details.replyTo,
+  })
+
+  if (!sent.ok) {
+    return {
+      actionUrl: link.url,
+      emailed: false,
+      problem: `${sent.message} The link below still works - send it to them yourself.`,
+    }
+  }
+
+  return { actionUrl: link.url, emailed: true, problem: null }
 }

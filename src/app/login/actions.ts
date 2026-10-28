@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 
+import prisma from '@/lib/db'
 import { emailSchema } from '@/lib/password'
 
 // There is deliberately no signup action here. Accounts are provisioned by a
@@ -59,8 +60,13 @@ export async function login(formData: FormData) {
   // decided in src/lib/current-user.ts on the first authenticated render. It
   // signs the session out and redirects back here with a reason, so there is
   // no second copy of that policy to keep in sync.
-
-  redirect('/dashboard')
+  //
+  // The one thing decided here is WHICH surface to open. A client has a
+  // Supabase account but no workspace User row, so sending them to the
+  // dashboard would bounce them straight back to this page with "not
+  // authorized" - technically correct and a terrible welcome. Deciding by
+  // what they have rather than guessing keeps both paths honest.
+  redirect((await isPortalOnlyAccount(email)) ? '/portal' : '/dashboard')
 }
 
 /**
@@ -102,4 +108,30 @@ export async function logout() {
   const supabase = getSupabaseServerClient(cookieStore)
   await supabase.auth.signOut()
   redirect('/login')
+}
+
+/**
+ * Whether this address belongs to a portal client and not to the workspace.
+ *
+ * Checked in that order deliberately: anyone who IS a workspace user goes to
+ * the dashboard even if they also happen to be recorded as a client
+ * somewhere, because that is the surface they signed in expecting.
+ */
+async function isPortalOnlyAccount(email: string): Promise<boolean> {
+  const address = email.trim().toLowerCase()
+  if (!address) return false
+
+  const [workspaceUser, portalClient] = await Promise.all([
+    prisma.user.findUnique({ where: { email: address }, select: { id: true } }),
+    prisma.client.findFirst({
+      where: {
+        email: { equals: address, mode: "insensitive" },
+        archivedAt: null,
+        OR: [{ portalUserId: { not: null } }, { portalInvitedAt: { not: null } }],
+      },
+      select: { id: true },
+    }),
+  ])
+
+  return !workspaceUser && portalClient != null
 }
