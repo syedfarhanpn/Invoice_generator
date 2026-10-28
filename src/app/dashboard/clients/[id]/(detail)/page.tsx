@@ -4,11 +4,11 @@ import { buttonVariants, Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import Link from "next/link"
 import prisma from "@/lib/db"
+import { getWorkspaceIdentity } from "@/lib/workspace-identity"
 import { notFound } from "next/navigation"
 
 import { PortalAccess } from "@/components/app/portal-access"
 import { formatTableDay } from "@/lib/dates"
-import { getCurrentUser } from "@/lib/current-user"
 import { archiveClient } from "../../actions"
 import { LifecycleBadge, PaymentBadge } from "@/components/app/status-badge"
 import { formatMoney } from "@/lib/money"
@@ -19,10 +19,10 @@ export default async function ClientProfilePage(props: { params: Promise<{ id: s
   await requirePermission("clients", "read")
 
   const params = await props.params
-  const user = await getCurrentUser()
+  const { workspaceId } = await getWorkspaceIdentity()
 
   const client = await prisma.client.findUnique({
-    where: { id: params.id, userId: user.id },
+    where: { id: params.id, userId: workspaceId },
     include: {
       documents: {
         orderBy: { createdAt: "desc" },

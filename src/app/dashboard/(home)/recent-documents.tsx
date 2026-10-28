@@ -1,7 +1,7 @@
 import Link from "next/link"
 import { Card } from "@/components/ui/card"
 import prisma from "@/lib/db"
-import { getCurrentUser } from "@/lib/current-user"
+import { getWorkspaceIdentity } from "@/lib/workspace-identity"
 import { LifecycleBadge, PaymentBadge } from "@/components/app/status-badge"
 import { documentKind } from "@/lib/document-kinds"
 
@@ -11,12 +11,12 @@ import { documentKind } from "@/lib/document-kinds"
  * while this streams in behind a <Suspense> boundary.
  */
 export default async function RecentDocuments() {
-  const user = await getCurrentUser()
+  const { workspaceId } = await getWorkspaceIdentity()
 
   // Same reason as the documents list: the content JSON is the bulk of each
   // row and nothing here reads it.
   const recentDocs = await prisma.document.findMany({
-    where: { userId: user.id },
+    where: { userId: workspaceId },
     take: 8,
     orderBy: { createdAt: "desc" },
     select: {

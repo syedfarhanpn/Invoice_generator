@@ -6,9 +6,9 @@ import { DonutChart } from "@/components/app/donut-chart"
 import { StatCard, StatRow } from "@/components/app/stat-card"
 import { buttonVariants } from "@/components/ui/button"
 import { requirePermission } from "@/lib/access"
-import { getCurrentUser } from "@/lib/current-user"
 import { formatTableDay } from "@/lib/dates"
 import prisma from "@/lib/db"
+import { getWorkspaceIdentity } from "@/lib/workspace-identity"
 import {
   DEFAULT_FILTER,
   matchesFilter,
@@ -51,7 +51,10 @@ export default async function DocumentsHistoryPage(props: {
   // access control; this is.
   await requirePermission("documents", "read")
 
-  const [searchParams, user] = await Promise.all([props.searchParams, getCurrentUser()])
+  const [searchParams, { workspaceId }] = await Promise.all([
+    props.searchParams,
+    getWorkspaceIdentity(),
+  ])
   const activeFilter = parseFilter(searchParams.filter)
   const now = new Date()
 
@@ -61,7 +64,7 @@ export default async function DocumentsHistoryPage(props: {
   // 40ms for these columns.
   const [documents, profile] = await Promise.all([
     prisma.document.findMany({
-      where: { userId: user.id },
+      where: { userId: workspaceId },
       orderBy: { createdAt: "desc" },
       select: {
         id: true,
@@ -81,7 +84,7 @@ export default async function DocumentsHistoryPage(props: {
       },
     }),
     prisma.businessProfile.findUnique({
-      where: { userId: user.id },
+      where: { userId: workspaceId },
       select: { currency: true },
     }),
   ])

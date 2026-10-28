@@ -1,8 +1,8 @@
 import { requirePermission } from "@/lib/access"
 import { redirect, notFound } from "next/navigation"
 import prisma from "@/lib/db"
+import { getWorkspaceIdentity } from "@/lib/workspace-identity"
 import { DocumentType, Prisma } from "@prisma/client"
-import { getCurrentUser } from "@/lib/current-user"
 import type { InvoiceContent, ContractContent } from "@/lib/types"
 import { CREATABLE_TYPES, documentKind } from "@/lib/document-kinds"
 
@@ -21,12 +21,12 @@ export default async function CreateDocumentAction(props: {
     return notFound()
   }
 
-  const user = await getCurrentUser()
+  const { workspaceId } = await getWorkspaceIdentity()
 
   const [businessProfile, client] = await Promise.all([
-    prisma.businessProfile.findUnique({ where: { userId: user.id } }),
+    prisma.businessProfile.findUnique({ where: { userId: workspaceId } }),
     searchParams.client
-      ? prisma.client.findUnique({ where: { id: searchParams.client, userId: user.id } })
+      ? prisma.client.findUnique({ where: { id: searchParams.client, userId: workspaceId } })
       : Promise.resolve(null),
   ])
 
@@ -57,7 +57,7 @@ export default async function CreateDocumentAction(props: {
 
   const doc = await prisma.document.create({
     data: {
-      userId: user.id,
+      userId: workspaceId,
       clientId: client?.id || null,
       type,
       status: "DRAFT",

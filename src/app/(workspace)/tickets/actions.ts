@@ -4,8 +4,8 @@ import { revalidatePath } from "next/cache"
 import type { TicketChannel, TicketPriority, TicketStatus } from "@prisma/client"
 
 import { assertPermission } from "@/lib/access"
-import { getCurrentUser } from "@/lib/current-user"
 import prisma from "@/lib/db"
+import { getWorkspaceIdentity } from "@/lib/workspace-identity"
 import { currentOrgId, resolveAssignee } from "@/lib/members"
 import { SETTLED } from "@/lib/ticket-summary"
 
@@ -78,7 +78,7 @@ async function resolveProject(userId: string, projectId: string | null) {
 
 export async function saveTicket(input: TicketInput) {
   await assertPermission("tickets", "write")
-  const user = await getCurrentUser()
+  const { workspaceId } = await getWorkspaceIdentity()
 
   const subject = input.subject.trim()
   if (!subject) throw new Error("A ticket needs a subject.")
@@ -96,18 +96,18 @@ export async function saveTicket(input: TicketInput) {
   const data = {
     subject,
     body: input.body?.trim() || null,
-    clientId: await resolveClient(user.id, input.clientId),
-    projectId: await resolveProject(user.id, input.projectId),
+    clientId: await resolveClient(workspaceId, input.clientId),
+    projectId: await resolveProject(workspaceId, input.projectId),
     status,
     priority,
     channel,
-    assigneeId: await resolveAssignee(user.id, input.assigneeId),
+    assigneeId: await resolveAssignee(workspaceId, input.assigneeId),
     dueAt: parseWhen(input.dueAt),
   }
 
   if (input.id) {
     const existing = await prisma.ticket.findFirst({
-      where: { id: input.id, userId: user.id, archivedAt: null },
+      where: { id: input.id, userId: workspaceId, archivedAt: null },
       select: { id: true, status: true, resolvedAt: true, closedAt: true },
     })
     if (!existing) throw new Error("That ticket no longer exists.")
@@ -117,26 +117,26 @@ export async function saveTicket(input: TicketInput) {
       data: { ...data, ...settlementStamps(existing, status) },
     })
   } else {
-    const orgId = await currentOrgId(user.id)
+    const orgId = await currentOrgId(workspaceId)
 
     // One transaction: the counter and the row it names move together, or
     // neither does.
     await prisma.$transaction(async (tx) => {
       const rows = await tx.$queryRaw<{ ticketSeq: number }[]>`
-        SELECT "ticketSeq" FROM "User" WHERE "id" = ${user.id} FOR UPDATE
+        SELECT "ticketSeq" FROM "User" WHERE "id" = ${workspaceId} FOR UPDATE
       `
       const current = rows[0]?.ticketSeq
       if (current == null) throw new Error("Could not allocate a ticket number.")
       const next = current + 1
 
-      await tx.$executeRaw`UPDATE "User" SET "ticketSeq" = ${next} WHERE "id" = ${user.id}`
+      await tx.$executeRaw`UPDATE "User" SET "ticketSeq" = ${next} WHERE "id" = ${workspaceId}`
 
       await tx.ticket.create({
         data: {
           ...data,
           ...settlementStamps(null, status),
           number: next,
-          userId: user.id,
+          userId: workspaceId,
           orgId,
         },
       })
@@ -184,13 +184,13 @@ export async function addTicketReply(input: {
   internal: boolean
 }) {
   await assertPermission("tickets", "write")
-  const user = await getCurrentUser()
+  const { workspaceId } = await getWorkspaceIdentity()
 
   const body = input.body.trim()
   if (!body) throw new Error("Write something before sending.")
 
   const ticket = await prisma.ticket.findFirst({
-    where: { id: input.ticketId, userId: user.id, archivedAt: null },
+    where: { id: input.ticketId, userId: workspaceId, archivedAt: null },
     select: { id: true, firstRespondedAt: true },
   })
   if (!ticket) throw new Error("That ticket no longer exists.")
@@ -200,7 +200,7 @@ export async function addTicketReply(input: {
   const visibility = input.fromClient ? "PUBLIC" : input.internal ? "INTERNAL" : "PUBLIC"
 
   const membership = await prisma.membership.findFirst({
-    where: { userId: user.id, status: { in: ["ACTIVE", "INVITED"] } },
+    where: { userId: workspaceId, status: { in: ["ACTIVE", "INVITED"] } },
     orderBy: { createdAt: "asc" },
     select: { id: true },
   })
@@ -231,9 +231,9 @@ export async function addTicketReply(input: {
 
 export async function archiveTicket(ticketId: string) {
   await assertPermission("tickets", "write")
-  const user = await getCurrentUser()
+  const { workspaceId } = await getWorkspaceIdentity()
   const ticket = await prisma.ticket.findFirst({
-    where: { id: ticketId, userId: user.id, archivedAt: null },
+    where: { id: ticketId, userId: workspaceId, archivedAt: null },
     select: { id: true },
   })
   if (!ticket) throw new Error("That ticket no longer exists.")

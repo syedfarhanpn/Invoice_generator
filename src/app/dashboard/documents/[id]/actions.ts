@@ -1,10 +1,10 @@
 "use server"
 
 import prisma from "@/lib/db"
+import { getWorkspaceIdentity } from "@/lib/workspace-identity"
 import type { Prisma } from "@prisma/client"
 import { revalidatePath } from "next/cache"
 import { assertPermission } from "@/lib/access"
-import { getCurrentUser } from "@/lib/current-user"
 import { allocateRef, allocateReceiptRef } from "@/lib/allocate-ref"
 import { buildSnapshot } from "@/lib/snapshot"
 import { hashContent } from "@/lib/hash"
@@ -40,8 +40,8 @@ export type UpdateDocumentInput = {
 
 export async function updateDocument(id: string, data: UpdateDocumentInput) {
   await assertPermission("documents", "write")
-  const user = await getCurrentUser()
-  const doc = await loadOwnedDocument(id, user.id)
+  const { workspaceId } = await getWorkspaceIdentity()
+  const doc = await loadOwnedDocument(id, workspaceId)
 
   if (doc.status !== "DRAFT") {
     throw new Error("This document is finalized and can no longer be edited.")
@@ -97,9 +97,9 @@ export async function updateDocument(id: string, data: UpdateDocumentInput) {
 // ---------------------------------------------------------------------------
 export async function finalizeDocument(id: string) {
   await assertPermission("documents", "write")
-  const user = await getCurrentUser()
+  const { workspaceId } = await getWorkspaceIdentity()
   const doc = await prisma.document.findUnique({
-    where: { id, userId: user.id },
+    where: { id, userId: workspaceId },
     include: { client: true },
   })
   if (!doc) throw new Error("Document not found")
@@ -118,7 +118,7 @@ export async function finalizeDocument(id: string) {
     if (!hasClause) throw new Error("Add at least one clause before finalizing.")
   }
 
-  const businessProfile = await prisma.businessProfile.findUnique({ where: { userId: user.id } })
+  const businessProfile = await prisma.businessProfile.findUnique({ where: { userId: workspaceId } })
 
   await prisma.$transaction(async (tx) => {
     const { refNumber, sequence } = await allocateRef(tx, doc.clientId!, doc.type)
@@ -163,9 +163,9 @@ export async function finalizeDocument(id: string) {
 // ---------------------------------------------------------------------------
 export async function convertToInvoice(id: string): Promise<{ invoiceId: string }> {
   await assertPermission("documents", "write")
-  const user = await getCurrentUser()
+  const { workspaceId } = await getWorkspaceIdentity()
   const source = await prisma.document.findUnique({
-    where: { id, userId: user.id },
+    where: { id, userId: workspaceId },
     include: { convertedTo: { select: { id: true, refNumber: true } } },
   })
   if (!source) throw new Error("Document not found")
@@ -199,7 +199,7 @@ export async function convertToInvoice(id: string): Promise<{ invoiceId: string 
   const invoice = await prisma.$transaction(async (tx) => {
     const created = await tx.document.create({
       data: {
-        userId: user.id,
+        userId: workspaceId,
         clientId: source.clientId,
         type: "INVOICE",
         status: "DRAFT",
@@ -252,8 +252,8 @@ export async function convertToInvoice(id: string): Promise<{ invoiceId: string 
 // ---------------------------------------------------------------------------
 export async function regenerateShareLink(id: string) {
   await assertPermission("documents", "write")
-  const user = await getCurrentUser()
-  const doc = await loadOwnedDocument(id, user.id)
+  const { workspaceId } = await getWorkspaceIdentity()
+  const doc = await loadOwnedDocument(id, workspaceId)
   if (doc.status === "DRAFT") throw new Error("Finalize the document before sharing it.")
 
   const publicSlug = generatePublicSlug()
@@ -267,8 +267,8 @@ export async function regenerateShareLink(id: string) {
 
 export async function revokeShareLink(id: string) {
   await assertPermission("documents", "write")
-  const user = await getCurrentUser()
-  await loadOwnedDocument(id, user.id)
+  const { workspaceId } = await getWorkspaceIdentity()
+  await loadOwnedDocument(id, workspaceId)
 
   await prisma.document.update({
     where: { id },
@@ -282,8 +282,8 @@ export async function revokeShareLink(id: string) {
 // ---------------------------------------------------------------------------
 export async function voidDocument(id: string) {
   await assertPermission("documents", "write")
-  const user = await getCurrentUser()
-  const doc = await loadOwnedDocument(id, user.id)
+  const { workspaceId } = await getWorkspaceIdentity()
+  const doc = await loadOwnedDocument(id, workspaceId)
   if (doc.status !== "FINALIZED" && doc.status !== "SIGNED") {
     throw new Error("Only a finalized document can be voided.")
   }
@@ -299,8 +299,8 @@ export async function voidDocument(id: string) {
 
 export async function deleteDraftDocument(id: string) {
   await assertPermission("documents", "write")
-  const user = await getCurrentUser()
-  const doc = await loadOwnedDocument(id, user.id)
+  const { workspaceId } = await getWorkspaceIdentity()
+  const doc = await loadOwnedDocument(id, workspaceId)
   if (doc.status !== "DRAFT") {
     throw new Error("Only a draft can be deleted - void a finalized document instead, to keep its number allocated.")
   }
@@ -333,8 +333,8 @@ async function resyncAmountPaid(tx: Prisma.TransactionClient, documentId: string
 
 export async function recordPayment(documentId: string, input: RecordPaymentInput) {
   await assertPermission("documents", "write")
-  const user = await getCurrentUser()
-  const doc = await loadOwnedDocument(documentId, user.id)
+  const { workspaceId } = await getWorkspaceIdentity()
+  const doc = await loadOwnedDocument(documentId, workspaceId)
   // Only a real invoice is a receivable. Letting a quote or proforma carry
   // payments would put money into the dashboard totals that was never billed.
   if (!documentKind(doc.type).tracksPayments) {
@@ -351,7 +351,7 @@ export async function recordPayment(documentId: string, input: RecordPaymentInpu
     await tx.payment.create({
       data: {
         documentId,
-        userId: user.id,
+        userId: workspaceId,
         amount: input.amount,
         paidOn: input.paidOn,
         method: input.method || null,
@@ -374,8 +374,8 @@ export async function recordPayment(documentId: string, input: RecordPaymentInpu
 
 export async function deletePayment(documentId: string, paymentId: string) {
   await assertPermission("documents", "write")
-  const user = await getCurrentUser()
-  await loadOwnedDocument(documentId, user.id)
+  const { workspaceId } = await getWorkspaceIdentity()
+  await loadOwnedDocument(documentId, workspaceId)
 
   await prisma.$transaction(async (tx) => {
     await tx.payment.delete({ where: { id: paymentId } })

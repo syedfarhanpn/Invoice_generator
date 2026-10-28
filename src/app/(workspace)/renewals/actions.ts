@@ -4,8 +4,8 @@ import { revalidatePath } from "next/cache"
 import type { BillingCycle, SubscriptionKind, SubscriptionStatus } from "@prisma/client"
 
 import { assertPermission } from "@/lib/access"
-import { getCurrentUser } from "@/lib/current-user"
 import prisma from "@/lib/db"
+import { getWorkspaceIdentity } from "@/lib/workspace-identity"
 import { currentOrgId, resolveAssignee } from "@/lib/members"
 import { advanceByCycle, moduleForKind } from "@/lib/renewals"
 
@@ -107,7 +107,7 @@ export async function saveSubscription(input: SubscriptionInput) {
 
   // Gated on what this row IS, not on which page asked.
   await assertPermission(moduleForKind(kind), "write")
-  const user = await getCurrentUser()
+  const { workspaceId } = await getWorkspaceIdentity()
   const cycle = CYCLES.includes(input.cycle as BillingCycle)
     ? (input.cycle as BillingCycle)
     : "YEARLY"
@@ -125,15 +125,15 @@ export async function saveSubscription(input: SubscriptionInput) {
   }
 
   const profile = await prisma.businessProfile.findUnique({
-    where: { userId: user.id },
+    where: { userId: workspaceId },
     select: { currency: true },
   })
 
   const data = {
     kind,
     name,
-    clientId: await resolveClient(user.id, input.clientId),
-    projectId: await resolveProject(user.id, input.projectId),
+    clientId: await resolveClient(workspaceId, input.clientId),
+    projectId: await resolveProject(workspaceId, input.projectId),
     provider: input.provider?.trim() || null,
     accountRef: input.accountRef?.trim() || null,
     startsOn,
@@ -144,21 +144,21 @@ export async function saveSubscription(input: SubscriptionInput) {
     currency: profile?.currency || "INR",
     autoRenew: Boolean(input.autoRenew),
     status,
-    ownerId: await resolveAssignee(user.id, input.ownerId),
+    ownerId: await resolveAssignee(workspaceId, input.ownerId),
     notes: input.notes?.trim() || null,
   }
 
   if (input.id) {
     // Scoped by userId so an id from elsewhere updates nothing.
     const existing = await prisma.subscription.findFirst({
-      where: { id: input.id, userId: user.id, archivedAt: null },
+      where: { id: input.id, userId: workspaceId, archivedAt: null },
       select: { id: true },
     })
     if (!existing) throw new Error("That subscription no longer exists.")
     await prisma.subscription.update({ where: { id: input.id }, data })
   } else {
     await prisma.subscription.create({
-      data: { ...data, userId: user.id, orgId: await currentOrgId(user.id) },
+      data: { ...data, userId: workspaceId, orgId: await currentOrgId(workspaceId) },
     })
   }
 
@@ -174,10 +174,10 @@ export async function saveSubscription(input: SubscriptionInput) {
  * click cannot leave it still reading as overdue.
  */
 export async function renewSubscription(subscriptionId: string) {
-  const user = await getCurrentUser()
+  const { workspaceId } = await getWorkspaceIdentity()
 
   const subscription = await prisma.subscription.findFirst({
-    where: { id: subscriptionId, userId: user.id, archivedAt: null },
+    where: { id: subscriptionId, userId: workspaceId, archivedAt: null },
     select: { id: true, kind: true, renewsOn: true, cycle: true },
   })
   if (!subscription) throw new Error("That subscription no longer exists.")
@@ -203,9 +203,9 @@ export async function renewSubscription(subscriptionId: string) {
 }
 
 export async function archiveSubscription(subscriptionId: string) {
-  const user = await getCurrentUser()
+  const { workspaceId } = await getWorkspaceIdentity()
   const subscription = await prisma.subscription.findFirst({
-    where: { id: subscriptionId, userId: user.id, archivedAt: null },
+    where: { id: subscriptionId, userId: workspaceId, archivedAt: null },
     select: { id: true, kind: true },
   })
   if (!subscription) throw new Error("That subscription no longer exists.")

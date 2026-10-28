@@ -1,9 +1,9 @@
 import { requirePermission } from "@/lib/access"
 import { PageHeader } from "@/components/app/page-header"
 import { CalendarMonth, type CalendarEvent } from "@/components/app/calendar-month"
-import { getCurrentUser } from "@/lib/current-user"
 import { formatLocalTime, toLocalDayKey } from "@/lib/dates"
 import prisma from "@/lib/db"
+import { getWorkspaceIdentity } from "@/lib/workspace-identity"
 
 export const metadata = { title: "Calendar" }
 
@@ -44,7 +44,7 @@ export default async function CalendarPage({
   // access control; this is.
   await requirePermission("calendar", "read")
 
-  const user = await getCurrentUser()
+  const { workspaceId } = await getWorkspaceIdentity()
   const { month: monthParam } = await searchParams
 
   const now = new Date()
@@ -53,16 +53,16 @@ export default async function CalendarPage({
 
   const [tasks, projects, invoices] = await Promise.all([
     prisma.task.findMany({
-      where: { userId: user.id, dueAt: { gte: from, lt: to } },
+      where: { userId: workspaceId, dueAt: { gte: from, lt: to } },
       select: { id: true, title: true, dueAt: true, status: true, priority: true },
     }),
     prisma.project.findMany({
-      where: { userId: user.id, archivedAt: null, deadline: { gte: from, lt: to } },
+      where: { userId: workspaceId, archivedAt: null, deadline: { gte: from, lt: to } },
       select: { id: true, title: true, deadline: true, stage: { select: { type: true } } },
     }),
     prisma.document.findMany({
       where: {
-        userId: user.id,
+        userId: workspaceId,
         type: "INVOICE",
         // Drafts were never billed; voids were cancelled after the fact.
         status: { notIn: ["DRAFT", "VOID"] },

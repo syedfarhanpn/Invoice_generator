@@ -2,8 +2,8 @@ import { requirePermission } from "@/lib/access"
 import type { PipelineKind } from "@prisma/client"
 
 import { ensureBoard } from "@/lib/boards"
-import { getCurrentUser } from "@/lib/current-user"
 import prisma from "@/lib/db"
+import { getWorkspaceIdentity } from "@/lib/workspace-identity"
 
 import { StageEditor, type EditableStage } from "./stage-editor"
 
@@ -39,7 +39,7 @@ const PANELS: { kind: PipelineKind; title: string; description: string }[] = [
 export default async function BoardSettingsPage() {
   await requirePermission("settings", "read")
 
-  const user = await getCurrentUser()
+  const { workspaceId } = await getWorkspaceIdentity()
 
   // Boards first, then ONE grouped count per kind.
   //
@@ -47,22 +47,22 @@ export default async function BoardSettingsPage() {
   // columns was fifteen round trips, each waiting on the last board's
   // ensureBoard before it even started. Three groupBy queries answer the same
   // question: a column absent from the result simply holds nothing.
-  const boards = await Promise.all(PANELS.map((panel) => ensureBoard(user.id, panel.kind)))
+  const boards = await Promise.all(PANELS.map((panel) => ensureBoard(workspaceId, panel.kind)))
 
   const [dealCounts, projectCounts, taskCounts] = await Promise.all([
     prisma.deal.groupBy({
       by: ["stageId"],
-      where: { userId: user.id, archivedAt: null },
+      where: { userId: workspaceId, archivedAt: null },
       _count: { _all: true },
     }),
     prisma.project.groupBy({
       by: ["stageId"],
-      where: { userId: user.id, archivedAt: null },
+      where: { userId: workspaceId, archivedAt: null },
       _count: { _all: true },
     }),
     prisma.task.groupBy({
       by: ["stageId"],
-      where: { userId: user.id },
+      where: { userId: workspaceId },
       _count: { _all: true },
     }),
   ])

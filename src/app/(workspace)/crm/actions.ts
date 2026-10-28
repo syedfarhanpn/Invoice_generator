@@ -7,11 +7,11 @@ import { assertStageInBoard, ensureBoard } from "@/lib/boards"
 import { compactPositions, positionsAfterMove } from "@/lib/ordering"
 import { renumber } from "@/lib/renumber"
 import { assertPermission } from "@/lib/access"
-import { getCurrentUser } from "@/lib/current-user"
 import { allocateClientNumber } from "@/lib/allocate-ref"
 import { suggestClientCode } from "@/lib/client-code"
 import { currentOrgId, resolveAssignee } from "@/lib/members"
 import prisma from "@/lib/db"
+import { getWorkspaceIdentity } from "@/lib/workspace-identity"
 
 /**
  * Writes for the Leads board.
@@ -57,12 +57,12 @@ export async function moveDeal(
   toIndex: number
 ): Promise<MoveDealResult> {
   await assertPermission("sales", "write")
-  const user = await getCurrentUser()
-  await assertStageInBoard(user.id, "LEADS", toStageId)
+  const { workspaceId } = await getWorkspaceIdentity()
+  await assertStageInBoard(workspaceId, "LEADS", toStageId)
 
   const [deal, stage] = await Promise.all([
     prisma.deal.findFirst({
-      where: { id: dealId, userId: user.id, archivedAt: null },
+      where: { id: dealId, userId: workspaceId, archivedAt: null },
       select: { id: true, title: true, stageId: true },
     }),
     prisma.stage.findUnique({
@@ -91,14 +91,14 @@ export async function moveDeal(
       },
     })
 
-    await renumberColumn(tx, user.id, toStageId, dealId, toIndex)
-    if (fromStageId !== toStageId) await renumberColumn(tx, user.id, fromStageId)
+    await renumberColumn(tx, workspaceId, toStageId, dealId, toIndex)
+    if (fromStageId !== toStageId) await renumberColumn(tx, workspaceId, fromStageId)
 
     if (fromStageId !== toStageId) {
       await tx.activity.create({
         data: {
           id: randomUUID(),
-          userId: user.id,
+          userId: workspaceId,
           type: won ? "DEAL_WON" : lost ? "DEAL_LOST" : "STAGE_CHANGE",
           subject: `Moved to ${stage?.name ?? "another stage"}`,
           dealId,
@@ -122,19 +122,19 @@ export async function moveDeal(
 
 export async function createDeal(stageId: string, title: string) {
   await assertPermission("sales", "write")
-  const user = await getCurrentUser()
+  const { workspaceId } = await getWorkspaceIdentity()
   const clean = title.trim()
   if (!clean) throw new Error("A lead needs a name.")
 
-  await assertStageInBoard(user.id, "LEADS", stageId)
-  const board = await ensureBoard(user.id, "LEADS")
+  await assertStageInBoard(workspaceId, "LEADS", stageId)
+  const board = await ensureBoard(workspaceId, "LEADS")
   const profile = await prisma.businessProfile.findUnique({
-    where: { userId: user.id },
+    where: { userId: workspaceId },
     select: { currency: true },
   })
 
   const last = await prisma.deal.findFirst({
-    where: { userId: user.id, stageId, archivedAt: null },
+    where: { userId: workspaceId, stageId, archivedAt: null },
     orderBy: { position: "desc" },
     select: { position: true },
   })
@@ -144,8 +144,8 @@ export async function createDeal(stageId: string, title: string) {
     data: {
       // The CRM tables carry no column defaults - see src/lib/boards.ts.
       id: randomUUID(),
-      userId: user.id,
-      orgId: await currentOrgId(user.id),
+      userId: workspaceId,
+      orgId: await currentOrgId(workspaceId),
       pipelineId: board.id,
       stageId,
       title: clean,
@@ -178,12 +178,12 @@ export async function updateDeal(input: {
   description: string | null
 }) {
   await assertPermission("sales", "write")
-  const user = await getCurrentUser()
+  const { workspaceId } = await getWorkspaceIdentity()
   const title = input.title.trim()
   if (!title) throw new Error("A lead needs a name.")
 
   const deal = await prisma.deal.findFirst({
-    where: { id: input.dealId, userId: user.id, archivedAt: null },
+    where: { id: input.dealId, userId: workspaceId, archivedAt: null },
     select: { id: true },
   })
   if (!deal) throw new Error("That lead no longer exists.")
@@ -192,14 +192,14 @@ export async function updateDeal(input: {
   let clientId: string | null = null
   if (input.clientId) {
     const client = await prisma.client.findFirst({
-      where: { id: input.clientId, userId: user.id },
+      where: { id: input.clientId, userId: workspaceId },
       select: { id: true },
     })
     if (!client) throw new Error("That client does not exist.")
     clientId = client.id
   }
 
-  const assignedToId = await resolveAssignee(user.id, input.assignedToId)
+  const assignedToId = await resolveAssignee(workspaceId, input.assignedToId)
 
   await prisma.deal.update({
     where: { id: input.dealId },
@@ -228,16 +228,16 @@ export async function updateDeal(input: {
  */
 export async function setNextAction(dealId: string, title: string, dueAt: string | null) {
   await assertPermission("sales", "write")
-  const user = await getCurrentUser()
+  const { workspaceId } = await getWorkspaceIdentity()
 
   const deal = await prisma.deal.findFirst({
-    where: { id: dealId, userId: user.id, archivedAt: null },
+    where: { id: dealId, userId: workspaceId, archivedAt: null },
     select: { id: true },
   })
   if (!deal) throw new Error("That lead no longer exists.")
 
   const existing = await prisma.task.findFirst({
-    where: { userId: user.id, dealId, status: "OPEN" },
+    where: { userId: workspaceId, dealId, status: "OPEN" },
     orderBy: { dueAt: "asc" },
     select: { id: true },
   })
@@ -265,8 +265,8 @@ export async function setNextAction(dealId: string, title: string, dueAt: string
     await prisma.task.create({
       data: {
         id: randomUUID(),
-        userId: user.id,
-        orgId: await currentOrgId(user.id),
+        userId: workspaceId,
+        orgId: await currentOrgId(workspaceId),
         dealId,
         title: clean,
         status: "OPEN",
@@ -286,9 +286,9 @@ export async function setNextAction(dealId: string, title: string, dueAt: string
 
 export async function archiveDeal(dealId: string) {
   await assertPermission("sales", "write")
-  const user = await getCurrentUser()
+  const { workspaceId } = await getWorkspaceIdentity()
   const deal = await prisma.deal.findFirst({
-    where: { id: dealId, userId: user.id, archivedAt: null },
+    where: { id: dealId, userId: workspaceId, archivedAt: null },
     select: { id: true, stageId: true },
   })
   if (!deal) throw new Error("That lead no longer exists.")
@@ -300,7 +300,7 @@ export async function archiveDeal(dealId: string) {
       where: { id: dealId },
       data: { archivedAt: new Date(), updatedAt: new Date() },
     })
-    await renumberColumn(tx, user.id, deal.stageId)
+    await renumberColumn(tx, workspaceId, deal.stageId)
   })
 
   revalidatePath("/crm")
@@ -326,10 +326,10 @@ export async function archiveDeal(dealId: string) {
 export async function convertDealToClient(dealId: string): Promise<{ clientId: string }> {
   await assertPermission("sales", "write")
   await assertPermission("clients", "write")
-  const user = await getCurrentUser()
+  const { workspaceId } = await getWorkspaceIdentity()
 
   const deal = await prisma.deal.findFirst({
-    where: { id: dealId, userId: user.id, archivedAt: null },
+    where: { id: dealId, userId: workspaceId, archivedAt: null },
     select: {
       id: true,
       title: true,
@@ -361,18 +361,18 @@ export async function convertDealToClient(dealId: string): Promise<{ clientId: s
 
   const code = await suggestClientCode(fullName, async (candidate) => {
     const taken = await prisma.client.findFirst({
-      where: { userId: user.id, code: candidate },
+      where: { userId: workspaceId, code: candidate },
       select: { id: true },
     })
     return taken != null
   })
 
   const clientId = await prisma.$transaction(async (tx) => {
-    const clientNumber = await allocateClientNumber(tx, user.id)
+    const clientNumber = await allocateClientNumber(tx, workspaceId)
     const client = await tx.client.create({
       data: {
-        userId: user.id,
-        orgId: await currentOrgId(user.id),
+        userId: workspaceId,
+        orgId: await currentOrgId(workspaceId),
         clientNumber,
         code,
         fullName,
@@ -397,8 +397,8 @@ export async function convertDealToClient(dealId: string): Promise<{ clientId: s
     await tx.activity.create({
       data: {
         id: randomUUID(),
-        userId: user.id,
-        orgId: await currentOrgId(user.id),
+        userId: workspaceId,
+        orgId: await currentOrgId(workspaceId),
         dealId,
         clientId: client.id,
         type: "NOTE",
@@ -443,8 +443,8 @@ export async function importLeads(input: {
   }[]
 }): Promise<{ created: number; duplicates: number }> {
   await assertPermission("sales", "write")
-  const user = await getCurrentUser()
-  await assertStageInBoard(user.id, "LEADS", input.stageId)
+  const { workspaceId } = await getWorkspaceIdentity()
+  await assertStageInBoard(workspaceId, "LEADS", input.stageId)
 
   if (input.rows.length === 0) return { created: 0, duplicates: 0 }
   // A guard against a mis-picked file, not a product limit: a lead export is
@@ -454,10 +454,10 @@ export async function importLeads(input: {
     throw new Error("That file has more than 5,000 rows. Split it and import in batches.")
   }
 
-  const board = await ensureBoard(user.id, "LEADS")
-  const orgId = await currentOrgId(user.id)
+  const board = await ensureBoard(workspaceId, "LEADS")
+  const orgId = await currentOrgId(workspaceId)
   const profile = await prisma.businessProfile.findUnique({
-    where: { userId: user.id },
+    where: { userId: workspaceId },
     select: { currency: true },
   })
   const currency = profile?.currency || "INR"
@@ -468,7 +468,7 @@ export async function importLeads(input: {
   const phones = input.rows.map((r) => r.phone).filter((p): p is string => p != null)
   const existing = await prisma.contact.findMany({
     where: {
-      userId: user.id,
+      userId: workspaceId,
       archivedAt: null,
       OR: [
         ...(emails.length > 0 ? [{ email: { in: emails } }] : []),
@@ -480,7 +480,7 @@ export async function importLeads(input: {
   const seenEmails = new Set(existing.map((c) => c.email?.toLowerCase()).filter(Boolean))
   const seenPhones = new Set(existing.map((c) => c.phone).filter(Boolean))
 
-  let position = await nextPosition(user.id, input.stageId)
+  let position = await nextPosition(workspaceId, input.stageId)
   let created = 0
   let duplicates = 0
 
@@ -504,7 +504,7 @@ export async function importLeads(input: {
       const contact = await tx.contact.create({
         data: {
           id: randomUUID(),
-          userId: user.id,
+          userId: workspaceId,
           orgId,
           firstName: firstName || row.name.trim(),
           lastName: rest.join(" ") || null,
@@ -520,7 +520,7 @@ export async function importLeads(input: {
       await tx.deal.create({
         data: {
           id: randomUUID(),
-          userId: user.id,
+          userId: workspaceId,
           orgId,
           pipelineId: board.id,
           stageId: input.stageId,

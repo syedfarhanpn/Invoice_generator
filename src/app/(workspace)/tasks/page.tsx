@@ -34,16 +34,16 @@ export default async function TasksPage() {
   await requirePermission("tasks", "read")
 
   const identity = await getWorkspaceIdentity()
-  const user = { id: identity.userId }
+  const workspaceId = identity.userId
   const [board, members] = await Promise.all([
-    ensureBoard(user.id, "TASKS"),
+    ensureBoard(workspaceId, "TASKS"),
     getWorkspaceMembers(identity.orgId),
   ])
 
   // Board cards are the tasks that live on it. Follow-ups created against a
   // deal have no column and belong to the CRM's agenda, not here.
   const tasks = await prisma.task.findMany({
-    where: { userId: user.id, stageId: { not: null } },
+    where: { userId: workspaceId, stageId: { not: null } },
     orderBy: [{ position: "asc" }],
     select: {
       id: true,

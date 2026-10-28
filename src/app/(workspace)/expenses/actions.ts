@@ -4,8 +4,8 @@ import { revalidatePath } from "next/cache"
 import type { ExpenseRecurrence, ExpenseScope, ExpenseStatus } from "@prisma/client"
 
 import { assertPermission } from "@/lib/access"
-import { getCurrentUser } from "@/lib/current-user"
 import prisma from "@/lib/db"
+import { getWorkspaceIdentity } from "@/lib/workspace-identity"
 import { currentOrgId } from "@/lib/members"
 
 /**
@@ -97,7 +97,7 @@ async function resolveDepartment(userId: string, departmentId: string | null) {
 
 export async function saveExpense(input: ExpenseInput) {
   await assertPermission("expenses", "write")
-  const user = await getCurrentUser()
+  const { workspaceId } = await getWorkspaceIdentity()
 
   const title = input.title.trim()
   if (!title) throw new Error("An expense needs a title.")
@@ -113,11 +113,11 @@ export async function saveExpense(input: ExpenseInput) {
     ? (input.status as ExpenseStatus)
     : "PAID"
 
-  const { scope, projectId } = await resolveScope(user.id, input.scope, input.projectId)
-  const departmentId = await resolveDepartment(user.id, input.departmentId)
+  const { scope, projectId } = await resolveScope(workspaceId, input.scope, input.projectId)
+  const departmentId = await resolveDepartment(workspaceId, input.departmentId)
 
   const profile = await prisma.businessProfile.findUnique({
-    where: { userId: user.id },
+    where: { userId: workspaceId },
     select: { currency: true },
   })
 
@@ -141,14 +141,14 @@ export async function saveExpense(input: ExpenseInput) {
   if (input.id) {
     // Scoped by userId so an id from elsewhere updates nothing.
     const existing = await prisma.expense.findFirst({
-      where: { id: input.id, userId: user.id, archivedAt: null },
+      where: { id: input.id, userId: workspaceId, archivedAt: null },
       select: { id: true },
     })
     if (!existing) throw new Error("That expense no longer exists.")
     await prisma.expense.update({ where: { id: input.id }, data })
   } else {
     await prisma.expense.create({
-      data: { ...data, userId: user.id, orgId: await currentOrgId(user.id) },
+      data: { ...data, userId: workspaceId, orgId: await currentOrgId(workspaceId) },
     })
   }
 
@@ -158,9 +158,9 @@ export async function saveExpense(input: ExpenseInput) {
 
 export async function archiveExpense(expenseId: string) {
   await assertPermission("expenses", "write")
-  const user = await getCurrentUser()
+  const { workspaceId } = await getWorkspaceIdentity()
   const expense = await prisma.expense.findFirst({
-    where: { id: expenseId, userId: user.id, archivedAt: null },
+    where: { id: expenseId, userId: workspaceId, archivedAt: null },
     select: { id: true },
   })
   if (!expense) throw new Error("That expense no longer exists.")

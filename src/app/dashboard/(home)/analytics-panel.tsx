@@ -1,5 +1,5 @@
 import prisma from "@/lib/db"
-import { getCurrentUser } from "@/lib/current-user"
+import { getWorkspaceIdentity } from "@/lib/workspace-identity"
 import { InvoiceAnalytics } from "@/components/app/invoice-analytics"
 import {
   buildSeries,
@@ -22,18 +22,18 @@ import {
  * dashboard sections, so a slow query holds up nothing else on the page.
  */
 export default async function AnalyticsPanel() {
-  const user = await getCurrentUser()
+  const { workspaceId } = await getWorkspaceIdentity()
   const now = new Date()
   const since = earliestRangeStart(now)
 
   const [businessProfile, rows] = await Promise.all([
     prisma.businessProfile.findUnique({
-      where: { userId: user.id },
+      where: { userId: workspaceId },
       select: { currency: true },
     }),
     prisma.document.findMany({
       where: {
-        userId: user.id,
+        userId: workspaceId,
         type: "INVOICE",
         // Drafts were never billed; voids were cancelled after the fact.
         status: { notIn: ["DRAFT", "VOID"] },

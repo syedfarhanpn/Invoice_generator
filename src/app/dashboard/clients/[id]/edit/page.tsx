@@ -1,6 +1,6 @@
 import { requirePermission } from "@/lib/access"
 import prisma from "@/lib/db"
-import { getCurrentUser } from "@/lib/current-user"
+import { getWorkspaceIdentity } from "@/lib/workspace-identity"
 import { notFound } from "next/navigation"
 import EditClientForm from "./edit-form"
 
@@ -10,15 +10,15 @@ export default async function EditClientPage(props: { params: Promise<{ id: stri
   await requirePermission("clients", "write")
 
   const params = await props.params
-  const user = await getCurrentUser()
+  const { workspaceId } = await getWorkspaceIdentity()
 
   const [client, profile] = await Promise.all([
     prisma.client.findUnique({
-      where: { id: params.id, userId: user.id },
+      where: { id: params.id, userId: workspaceId },
       include: { _count: { select: { documents: true } } },
     }),
     prisma.businessProfile.findUnique({
-      where: { userId: user.id },
+      where: { userId: workspaceId },
       select: { currency: true },
     }),
   ])

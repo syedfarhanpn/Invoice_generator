@@ -4,8 +4,8 @@ import { cookies } from "next/headers"
 import { revalidatePath } from "next/cache"
 
 import prisma from "@/lib/db"
+import { getWorkspaceIdentity } from "@/lib/workspace-identity"
 import { assertPermission } from "@/lib/access"
-import { getCurrentUser } from "@/lib/current-user"
 import { isOwnLogoUrl, LOGO_BUCKET } from "@/lib/logo-upload"
 import { createClient } from "@/utils/supabase/server"
 
@@ -23,7 +23,7 @@ import { createClient } from "@/utils/supabase/server"
  */
 export async function setBusinessLogo(publicUrl: string) {
   await assertPermission("settings", "write")
-  const user = await getCurrentUser()
+  const { workspaceId } = await getWorkspaceIdentity()
 
   const cookieStore = await cookies()
   const supabase = createClient(cookieStore)
@@ -38,12 +38,12 @@ export async function setBusinessLogo(publicUrl: string) {
   }
 
   const previous = await prisma.businessProfile.findUnique({
-    where: { userId: user.id },
+    where: { userId: workspaceId },
     select: { logoUrl: true },
   })
 
   await prisma.businessProfile.update({
-    where: { userId: user.id },
+    where: { userId: workspaceId },
     data: { logoUrl: publicUrl },
   })
 
@@ -66,9 +66,9 @@ export async function setBusinessLogo(publicUrl: string) {
 /** Clears the logo. Leaves the stored object alone; only the reference goes. */
 export async function removeBusinessLogo() {
   await assertPermission("settings", "write")
-  const user = await getCurrentUser()
+  const { workspaceId } = await getWorkspaceIdentity()
   await prisma.businessProfile.update({
-    where: { userId: user.id },
+    where: { userId: workspaceId },
     data: { logoUrl: null },
   })
   revalidatePath("/dashboard/settings/business")

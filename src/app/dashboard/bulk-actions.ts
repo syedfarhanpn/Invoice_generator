@@ -4,8 +4,8 @@ import { revalidatePath } from "next/cache"
 import { z } from "zod"
 
 import prisma from "@/lib/db"
+import { getWorkspaceIdentity } from "@/lib/workspace-identity"
 import { assertPermission } from "@/lib/access"
-import { getCurrentUser } from "@/lib/current-user"
 import { canDeleteClient, canDeleteDocument, canVoidDocument } from "@/lib/bulk-actions"
 
 /**
@@ -33,12 +33,12 @@ export type BulkResult = {
 /** Deletes selected DRAFT documents. Issued documents are skipped, not deleted. */
 export async function bulkDeleteDocuments(ids: string[]): Promise<BulkResult> {
   await assertPermission("documents", "write")
-  const user = await getCurrentUser()
+  const { workspaceId } = await getWorkspaceIdentity()
   const parsed = idsSchema.safeParse(ids)
   if (!parsed.success) throw new Error("Nothing valid was selected.")
 
   const rows = await prisma.document.findMany({
-    where: { id: { in: parsed.data }, userId: user.id },
+    where: { id: { in: parsed.data }, userId: workspaceId },
     select: { id: true, status: true },
   })
 
@@ -48,7 +48,7 @@ export async function bulkDeleteDocuments(ids: string[]): Promise<BulkResult> {
   // not the fact that we just read these rows.
   const { count } = deletable.length
     ? await prisma.document.deleteMany({
-        where: { id: { in: deletable }, userId: user.id, status: "DRAFT" },
+        where: { id: { in: deletable }, userId: workspaceId, status: "DRAFT" },
       })
     : { count: 0 }
 
@@ -60,12 +60,12 @@ export async function bulkDeleteDocuments(ids: string[]): Promise<BulkResult> {
 /** Voids selected FINALIZED/SIGNED documents, keeping their serial allocated. */
 export async function bulkVoidDocuments(ids: string[]): Promise<BulkResult> {
   await assertPermission("documents", "write")
-  const user = await getCurrentUser()
+  const { workspaceId } = await getWorkspaceIdentity()
   const parsed = idsSchema.safeParse(ids)
   if (!parsed.success) throw new Error("Nothing valid was selected.")
 
   const rows = await prisma.document.findMany({
-    where: { id: { in: parsed.data }, userId: user.id },
+    where: { id: { in: parsed.data }, userId: workspaceId },
     select: { id: true, status: true },
   })
   const voidable = rows.filter((r) => canVoidDocument(r.status)).map((r) => r.id)
@@ -77,7 +77,7 @@ export async function bulkVoidDocuments(ids: string[]): Promise<BulkResult> {
     const { count } = await tx.document.updateMany({
       // Status is re-asserted in the UPDATE itself, so a document finalized or
       // voided between the read and the write cannot be caught by surprise.
-      where: { id: { in: voidable }, userId: user.id, status: { in: ["FINALIZED", "SIGNED"] } },
+      where: { id: { in: voidable }, userId: workspaceId, status: { in: ["FINALIZED", "SIGNED"] } },
       data: { status: "VOID", publicSlug: null, slugRevokedAt: new Date() },
     })
     await tx.documentActivity.createMany({
@@ -104,12 +104,12 @@ export async function bulkVoidDocuments(ids: string[]): Promise<BulkResult> {
  */
 export async function bulkDeleteClients(ids: string[]): Promise<BulkResult> {
   await assertPermission("clients", "write")
-  const user = await getCurrentUser()
+  const { workspaceId } = await getWorkspaceIdentity()
   const parsed = idsSchema.safeParse(ids)
   if (!parsed.success) throw new Error("Nothing valid was selected.")
 
   const rows = await prisma.client.findMany({
-    where: { id: { in: parsed.data }, userId: user.id },
+    where: { id: { in: parsed.data }, userId: workspaceId },
     select: { id: true, _count: { select: { documents: true } } },
   })
 
@@ -122,7 +122,7 @@ export async function bulkDeleteClients(ids: string[]): Promise<BulkResult> {
   // document were created between the read above and this delete, the row
   // would no longer match and would be left alone.
   const { count } = await prisma.client.deleteMany({
-    where: { id: { in: deletable }, userId: user.id, documents: { none: {} } },
+    where: { id: { in: deletable }, userId: workspaceId, documents: { none: {} } },
   })
 
   revalidatePath("/dashboard/clients")
@@ -132,12 +132,12 @@ export async function bulkDeleteClients(ids: string[]): Promise<BulkResult> {
 /** Archives selected clients - always safe, and reversible. */
 export async function bulkArchiveClients(ids: string[], archived: boolean): Promise<BulkResult> {
   await assertPermission("clients", "write")
-  const user = await getCurrentUser()
+  const { workspaceId } = await getWorkspaceIdentity()
   const parsed = idsSchema.safeParse(ids)
   if (!parsed.success) throw new Error("Nothing valid was selected.")
 
   const { count } = await prisma.client.updateMany({
-    where: { id: { in: parsed.data }, userId: user.id },
+    where: { id: { in: parsed.data }, userId: workspaceId },
     data: { archivedAt: archived ? new Date() : null },
   })
 

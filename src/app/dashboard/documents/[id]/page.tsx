@@ -1,8 +1,8 @@
 import { requirePermission } from "@/lib/access"
 import prisma from "@/lib/db"
+import { getWorkspaceIdentity } from "@/lib/workspace-identity"
 import { notFound } from "next/navigation"
 import DocumentEditor from "./document-editor"
-import { getCurrentUser } from "@/lib/current-user"
 import { documentKind } from "@/lib/document-kinds"
 
 
@@ -13,9 +13,9 @@ import { documentKind } from "@/lib/document-kinds"
  */
 export async function generateMetadata(props: { params: Promise<{ id: string }> }) {
   const { id } = await props.params
-  const user = await getCurrentUser()
+  const { workspaceId } = await getWorkspaceIdentity()
   const doc = await prisma.document.findUnique({
-    where: { id, userId: user.id },
+    where: { id, userId: workspaceId },
     select: { refNumber: true, type: true },
   })
   if (!doc) return { title: "Document" }
@@ -26,13 +26,13 @@ export default async function DocumentPage(props: { params: Promise<{ id: string
   await requirePermission("documents", "read")
 
   const params = await props.params
-  const user = await getCurrentUser()
+  const { workspaceId } = await getWorkspaceIdentity()
 
-  // All three only depend on user.id, so they run as one round-trip instead
+  // All three only depend on workspaceId, so they run as one round-trip instead
   // of three sequential ones - this page is the slowest in the app.
   const [document, businessProfile, clients] = await Promise.all([
     prisma.document.findUnique({
-      where: { id: params.id, userId: user.id },
+      where: { id: params.id, userId: workspaceId },
       include: {
         client: true,
         payments: { orderBy: { paidOn: "desc" } },
@@ -44,10 +44,10 @@ export default async function DocumentPage(props: { params: Promise<{ id: string
       },
     }),
     prisma.businessProfile.findUnique({
-      where: { userId: user.id },
+      where: { userId: workspaceId },
     }),
     prisma.client.findMany({
-      where: { userId: user.id, archivedAt: null },
+      where: { userId: workspaceId, archivedAt: null },
       orderBy: { fullName: "asc" },
     }),
   ])

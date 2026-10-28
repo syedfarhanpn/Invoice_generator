@@ -5,6 +5,7 @@ import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { getCurrentUser } from "@/lib/current-user"
 import prisma from "@/lib/db"
+import { getWorkspaceIdentity } from "@/lib/workspace-identity"
 import { maskApiKey } from "@/lib/api-key"
 import { MIN_PASSWORD_LENGTH } from "@/lib/password"
 import { SubmitButton } from "@/app/login/submit-button"
@@ -24,11 +25,15 @@ export default async function SecurityPage(props: {
   searchParams: Promise<{ error?: string; updated?: string }>
 }) {
   const searchParams = await props.searchParams
+  // Both, because this page carries both kinds of thing: a password belongs
+  // to the person changing it, API keys authenticate into the workspace and
+  // are shared by everyone who may manage it.
   const user = await getCurrentUser()
+  const { workspaceId } = await getWorkspaceIdentity()
   await requirePermission("settings", "read")
 
   const apiKeys = await prisma.apiKey.findMany({
-    where: { userId: user.id },
+    where: { userId: workspaceId },
     orderBy: { createdAt: "desc" },
   })
 

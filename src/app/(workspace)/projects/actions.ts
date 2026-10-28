@@ -6,9 +6,9 @@ import { assertStageInBoard, ensureBoard } from "@/lib/boards"
 import { compactPositions, positionsAfterMove } from "@/lib/ordering"
 import { renumber } from "@/lib/renumber"
 import { assertPermission } from "@/lib/access"
-import { getCurrentUser } from "@/lib/current-user"
 import { currentOrgId, resolveAssignee } from "@/lib/members"
 import prisma from "@/lib/db"
+import { getWorkspaceIdentity } from "@/lib/workspace-identity"
 
 /**
  * Writes for the Projects board.
@@ -73,11 +73,11 @@ export async function moveProject(
   toIndex: number
 ): Promise<MoveProjectResult> {
   await assertPermission("projects", "write")
-  const user = await getCurrentUser()
-  await assertStageInBoard(user.id, "PROJECTS", toStageId)
+  const { workspaceId } = await getWorkspaceIdentity()
+  await assertStageInBoard(workspaceId, "PROJECTS", toStageId)
 
   const project = await prisma.project.findFirst({
-    where: { id: projectId, userId: user.id, archivedAt: null },
+    where: { id: projectId, userId: workspaceId, archivedAt: null },
     select: { id: true, stageId: true, title: true },
   })
   if (!project) throw new Error("That project no longer exists.")
@@ -86,9 +86,9 @@ export async function moveProject(
 
   await prisma.$transaction(async (tx) => {
     await tx.project.update({ where: { id: projectId }, data: { stageId: toStageId } })
-    await renumberColumn(tx, user.id, toStageId, projectId, toIndex)
+    await renumberColumn(tx, workspaceId, toStageId, projectId, toIndex)
     // Closing the gap the card left behind.
-    if (fromStageId !== toStageId) await renumberColumn(tx, user.id, fromStageId)
+    if (fromStageId !== toStageId) await renumberColumn(tx, workspaceId, fromStageId)
   })
 
   revalidatePath("/projects")
@@ -114,29 +114,29 @@ export async function moveProject(
 
 export async function createProject(stageId: string, title: string) {
   await assertPermission("projects", "write")
-  const user = await getCurrentUser()
+  const { workspaceId } = await getWorkspaceIdentity()
   const clean = title.trim()
   if (!clean) throw new Error("A project needs a title.")
 
-  await assertStageInBoard(user.id, "PROJECTS", stageId)
-  const board = await ensureBoard(user.id, "PROJECTS")
+  await assertStageInBoard(workspaceId, "PROJECTS", stageId)
+  const board = await ensureBoard(workspaceId, "PROJECTS")
   const profile = await prisma.businessProfile.findUnique({
-    where: { userId: user.id },
+    where: { userId: workspaceId },
     select: { currency: true },
   })
 
   // Appended to the end of the column, which is where a new card belongs -
   // you have not decided its priority yet.
   const last = await prisma.project.findFirst({
-    where: { userId: user.id, stageId, archivedAt: null },
+    where: { userId: workspaceId, stageId, archivedAt: null },
     orderBy: { position: "desc" },
     select: { position: true },
   })
 
   await prisma.project.create({
     data: {
-      userId: user.id,
-      orgId: await currentOrgId(user.id),
+      userId: workspaceId,
+      orgId: await currentOrgId(workspaceId),
       pipelineId: board.id,
       stageId,
       title: clean,
@@ -171,21 +171,21 @@ export async function createProjectWithDetails(input: {
   description: string | null
 }) {
   await assertPermission("projects", "write")
-  const user = await getCurrentUser()
+  const { workspaceId } = await getWorkspaceIdentity()
   const title = input.title.trim()
   if (!title) throw new Error("A project needs a title.")
 
-  await assertStageInBoard(user.id, "PROJECTS", input.stageId)
-  const board = await ensureBoard(user.id, "PROJECTS")
+  await assertStageInBoard(workspaceId, "PROJECTS", input.stageId)
+  const board = await ensureBoard(workspaceId, "PROJECTS")
   const profile = await prisma.businessProfile.findUnique({
-    where: { userId: user.id },
+    where: { userId: workspaceId },
     select: { currency: true },
   })
 
   let clientId: string | null = null
   if (input.clientId) {
     const client = await prisma.client.findFirst({
-      where: { id: input.clientId, userId: user.id },
+      where: { id: input.clientId, userId: workspaceId },
       select: { id: true },
     })
     if (!client) throw new Error("That client does not exist.")
@@ -193,20 +193,20 @@ export async function createProjectWithDetails(input: {
   }
 
   const last = await prisma.project.findFirst({
-    where: { userId: user.id, stageId: input.stageId, archivedAt: null },
+    where: { userId: workspaceId, stageId: input.stageId, archivedAt: null },
     orderBy: { position: "desc" },
     select: { position: true },
   })
 
   const project = await prisma.project.create({
     data: {
-      userId: user.id,
-      orgId: await currentOrgId(user.id),
+      userId: workspaceId,
+      orgId: await currentOrgId(workspaceId),
       pipelineId: board.id,
       stageId: input.stageId,
       title,
       clientId,
-      managerId: await resolveAssignee(user.id, input.managerId),
+      managerId: await resolveAssignee(workspaceId, input.managerId),
       category: input.category?.trim() || null,
       progress: parseProgress(input.progress),
       value: parseAmount(input.value),
@@ -251,10 +251,10 @@ export async function addProjectServices(input: {
   }[]
 }) {
   await assertPermission("projects", "write")
-  const user = await getCurrentUser()
+  const { workspaceId } = await getWorkspaceIdentity()
 
   const project = await prisma.project.findFirst({
-    where: { id: input.projectId, userId: user.id, archivedAt: null },
+    where: { id: input.projectId, userId: workspaceId, archivedAt: null },
     select: { id: true, clientId: true, title: true },
   })
   if (!project) throw new Error("That project no longer exists.")
@@ -270,11 +270,11 @@ export async function addProjectServices(input: {
   }
 
   const profile = await prisma.businessProfile.findUnique({
-    where: { userId: user.id },
+    where: { userId: workspaceId },
     select: { currency: true },
   })
   const currency = profile?.currency || "INR"
-  const orgId = await currentOrgId(user.id)
+  const orgId = await currentOrgId(workspaceId)
   const note = input.note?.trim() || null
   const now = new Date()
 
@@ -282,7 +282,7 @@ export async function addProjectServices(input: {
     data: wanted.map((service) => {
       const renewsOn = parseDay(service.renewsOn) ?? now
       return {
-        userId: user.id,
+        userId: workspaceId,
         orgId,
         projectId: project.id,
         clientId: project.clientId,
@@ -335,10 +335,10 @@ function parseCycle(value: string): (typeof CYCLES)[number] {
  */
 export async function startProjectFromDeal(dealId: string) {
   await assertPermission("projects", "write")
-  const user = await getCurrentUser()
+  const { workspaceId } = await getWorkspaceIdentity()
 
   const deal = await prisma.deal.findFirst({
-    where: { id: dealId, userId: user.id },
+    where: { id: dealId, userId: workspaceId },
     select: { id: true, title: true, clientId: true, value: true, currency: true },
   })
   if (!deal) throw new Error("That deal no longer exists.")
@@ -349,20 +349,20 @@ export async function startProjectFromDeal(dealId: string) {
   })
   if (existing) return { created: false, projectId: existing.id }
 
-  const board = await ensureBoard(user.id, "PROJECTS")
+  const board = await ensureBoard(workspaceId, "PROJECTS")
   const first = board.stages.find((stage) => stage.type === "OPEN") ?? board.stages[0]
   if (!first) throw new Error("The Projects board has no columns yet. Add some in Preferences.")
 
   const last = await prisma.project.findFirst({
-    where: { userId: user.id, stageId: first.id, archivedAt: null },
+    where: { userId: workspaceId, stageId: first.id, archivedAt: null },
     orderBy: { position: "desc" },
     select: { position: true },
   })
 
   const project = await prisma.project.create({
     data: {
-      userId: user.id,
-      orgId: await currentOrgId(user.id),
+      userId: workspaceId,
+      orgId: await currentOrgId(workspaceId),
       pipelineId: board.id,
       stageId: first.id,
       clientId: deal.clientId,
@@ -400,12 +400,12 @@ export async function updateProject(input: {
   description: string | null
 }) {
   await assertPermission("projects", "write")
-  const user = await getCurrentUser()
+  const { workspaceId } = await getWorkspaceIdentity()
   const title = input.title.trim()
   if (!title) throw new Error("A project needs a title.")
 
   const project = await prisma.project.findFirst({
-    where: { id: input.projectId, userId: user.id, archivedAt: null },
+    where: { id: input.projectId, userId: workspaceId, archivedAt: null },
     select: { id: true },
   })
   if (!project) throw new Error("That project no longer exists.")
@@ -413,14 +413,14 @@ export async function updateProject(input: {
   let clientId: string | null = null
   if (input.clientId) {
     const client = await prisma.client.findFirst({
-      where: { id: input.clientId, userId: user.id },
+      where: { id: input.clientId, userId: workspaceId },
       select: { id: true },
     })
     if (!client) throw new Error("That client does not exist.")
     clientId = client.id
   }
 
-  const managerId = await resolveAssignee(user.id, input.managerId)
+  const managerId = await resolveAssignee(workspaceId, input.managerId)
 
   await prisma.project.update({
     where: { id: input.projectId },
@@ -446,9 +446,9 @@ export async function updateProject(input: {
 
 export async function archiveProject(projectId: string) {
   await assertPermission("projects", "write")
-  const user = await getCurrentUser()
+  const { workspaceId } = await getWorkspaceIdentity()
   const project = await prisma.project.findFirst({
-    where: { id: projectId, userId: user.id, archivedAt: null },
+    where: { id: projectId, userId: workspaceId, archivedAt: null },
     select: { id: true, stageId: true },
   })
   if (!project) throw new Error("That project no longer exists.")
@@ -457,7 +457,7 @@ export async function archiveProject(projectId: string) {
   // project is part of the record of what you have done.
   await prisma.$transaction(async (tx) => {
     await tx.project.update({ where: { id: projectId }, data: { archivedAt: new Date() } })
-    await renumberColumn(tx, user.id, project.stageId)
+    await renumberColumn(tx, workspaceId, project.stageId)
   })
 
   revalidatePath("/projects")

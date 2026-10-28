@@ -5,9 +5,9 @@ import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import prisma from "@/lib/db"
+import { getWorkspaceIdentity } from "@/lib/workspace-identity"
 import { redirect } from "next/navigation"
 import { revalidatePath } from "next/cache"
-import { getCurrentUser } from "@/lib/current-user"
 import { LogoUploader } from "./logo-uploader"
 import { DocumentAppearance } from "./document-appearance"
 import { Textarea } from "@/components/ui/textarea"
@@ -19,12 +19,15 @@ export const metadata = { title: "Settings" }
 export default async function SettingsPage() {
   await requirePermission("settings", "read")
 
-  const user = await getCurrentUser()
-  const profile = await prisma.businessProfile.findUnique({ where: { userId: user.id } })
+  const { workspaceId } = await getWorkspaceIdentity()
+  const profile = await prisma.businessProfile.findUnique({ where: { userId: workspaceId } })
 
   async function updateProfile(formData: FormData) {
     "use server"
-    const userId = user?.id
+    // Re-resolved inside the action rather than closed over: a Server Action
+    // is a public endpoint and must establish its own scope, not trust a
+    // value baked into the page that rendered the form.
+    const { workspaceId: userId } = await getWorkspaceIdentity()
     if (!userId) return
 
     const taxMode = (formData.get("defaultTaxMode") as string) === "PERCENTAGE" ? "PERCENTAGE" : "NONE"

@@ -2,7 +2,6 @@
 
 import prisma from "@/lib/db"
 import { assertPermission } from "@/lib/access"
-import { getCurrentUser } from "@/lib/current-user"
 import { normalizeClientCode, suggestClientCode } from "@/lib/client-code"
 import { allocateClientNumber } from "@/lib/allocate-ref"
 import { sendPortalInvite, type InviteOutcome } from "@/lib/invites"
@@ -39,13 +38,13 @@ async function codeIsTaken(userId: string, code: string, excludeClientId?: strin
 
 export async function suggestCodeForName(name: string): Promise<string> {
   await assertPermission("clients", "write")
-  const user = await getCurrentUser()
-  return suggestClientCode(name || "Client", (code) => codeIsTaken(user.id, code))
+  const { workspaceId } = await getWorkspaceIdentity()
+  return suggestClientCode(name || "Client", (code) => codeIsTaken(workspaceId, code))
 }
 
 export async function createClient(input: ClientFormInput) {
   await assertPermission("clients", "write")
-  const user = await getCurrentUser()
+  const { workspaceId } = await getWorkspaceIdentity()
 
   if (!input.fullName?.trim()) throw new Error("Full name is required")
   if (!input.email?.trim()) throw new Error("Email is required")
@@ -53,16 +52,16 @@ export async function createClient(input: ClientFormInput) {
   const nameForCode = input.businessName?.trim() || input.fullName.trim()
   let code = input.code ? normalizeClientCode(input.code) : ""
   if (!code) {
-    code = await suggestClientCode(nameForCode, (c) => codeIsTaken(user.id, c))
-  } else if (await codeIsTaken(user.id, code)) {
+    code = await suggestClientCode(nameForCode, (c) => codeIsTaken(workspaceId, c))
+  } else if (await codeIsTaken(workspaceId, code)) {
     throw new Error(`Client code "${code}" is already in use.`)
   }
 
   const client = await prisma.$transaction(async (tx) => {
-    const clientNumber = await allocateClientNumber(tx, user.id)
+    const clientNumber = await allocateClientNumber(tx, workspaceId)
     return tx.client.create({
       data: {
-        userId: user.id,
+        userId: workspaceId,
         clientNumber,
         code,
         fullName: input.fullName.trim(),
@@ -85,10 +84,10 @@ export async function createClient(input: ClientFormInput) {
 
 export async function updateClient(id: string, input: ClientFormInput) {
   await assertPermission("clients", "write")
-  const user = await getCurrentUser()
+  const { workspaceId } = await getWorkspaceIdentity()
 
   const existing = await prisma.client.findUnique({
-    where: { id, userId: user.id },
+    where: { id, userId: workspaceId },
     include: { _count: { select: { documents: true } } },
   })
   if (!existing) throw new Error("Client not found")
@@ -104,7 +103,7 @@ export async function updateClient(id: string, input: ClientFormInput) {
           "This client's code is locked because they already have a document - editing it would orphan already-issued serial numbers."
         )
       }
-      if (await codeIsTaken(user.id, normalized, id)) {
+      if (await codeIsTaken(workspaceId, normalized, id)) {
         throw new Error(`Client code "${normalized}" is already in use.`)
       }
       code = normalized
@@ -135,9 +134,9 @@ export async function updateClient(id: string, input: ClientFormInput) {
 
 export async function archiveClient(id: string, archived: boolean) {
   await assertPermission("clients", "write")
-  const user = await getCurrentUser()
+  const { workspaceId } = await getWorkspaceIdentity()
   await prisma.client.update({
-    where: { id, userId: user.id },
+    where: { id, userId: workspaceId },
     data: { archivedAt: archived ? new Date() : null },
   })
   revalidatePath("/dashboard/clients")
@@ -157,10 +156,10 @@ export async function invitePortalClient(
   note?: string | null
 ): Promise<InviteOutcome> {
   await assertPermission("clients", "write")
-  const user = await getCurrentUser()
+  const { workspaceId } = await getWorkspaceIdentity()
 
   const client = await prisma.client.findFirst({
-    where: { id: clientId, userId: user.id, archivedAt: null },
+    where: { id: clientId, userId: workspaceId, archivedAt: null },
     select: { id: true, email: true, fullName: true, businessName: true },
   })
   if (!client) throw new Error("That client no longer exists.")
@@ -202,10 +201,10 @@ export async function invitePortalClient(
  */
 export async function revokePortalAccess(clientId: string) {
   await assertPermission("clients", "write")
-  const user = await getCurrentUser()
+  const { workspaceId } = await getWorkspaceIdentity()
 
   const client = await prisma.client.findFirst({
-    where: { id: clientId, userId: user.id },
+    where: { id: clientId, userId: workspaceId },
     select: { id: true },
   })
   if (!client) throw new Error("That client no longer exists.")

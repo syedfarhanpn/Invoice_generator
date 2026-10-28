@@ -1,6 +1,6 @@
 import { requirePermission } from "@/lib/access"
 import prisma from "@/lib/db"
-import { getCurrentUser } from "@/lib/current-user"
+import { getWorkspaceIdentity } from "@/lib/workspace-identity"
 import ClientForm from "../client-form"
 import { createClient } from "../actions"
 
@@ -9,11 +9,11 @@ export const metadata = { title: "Add client" }
 export default async function NewClientPage() {
   await requirePermission("clients", "write")
 
-  const user = await getCurrentUser()
+  const { workspaceId } = await getWorkspaceIdentity()
   // Read here rather than in the form: the form is a Client Component, and
   // this is what "inherit" actually resolves to.
   const profile = await prisma.businessProfile.findUnique({
-    where: { userId: user.id },
+    where: { userId: workspaceId },
     select: { currency: true },
   })
 

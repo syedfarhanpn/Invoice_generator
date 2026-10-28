@@ -8,9 +8,9 @@ import { assertStageInBoard, ensureBoard } from "@/lib/boards"
 import { compactPositions, positionsAfterMove } from "@/lib/ordering"
 import { renumber } from "@/lib/renumber"
 import { assertPermission } from "@/lib/access"
-import { getCurrentUser } from "@/lib/current-user"
 import { currentOrgId, resolveAssignee } from "@/lib/members"
 import prisma from "@/lib/db"
+import { getWorkspaceIdentity } from "@/lib/workspace-identity"
 
 /**
  * Writes for the Tasks board.
@@ -48,12 +48,12 @@ async function renumberColumn(
 
 export async function moveTask(taskId: string, toStageId: string, toIndex: number) {
   await assertPermission("tasks", "write")
-  const user = await getCurrentUser()
-  await assertStageInBoard(user.id, "TASKS", toStageId)
+  const { workspaceId } = await getWorkspaceIdentity()
+  await assertStageInBoard(workspaceId, "TASKS", toStageId)
 
   const [task, stage] = await Promise.all([
     prisma.task.findFirst({
-      where: { id: taskId, userId: user.id },
+      where: { id: taskId, userId: workspaceId },
       select: { id: true, stageId: true, status: true },
     }),
     prisma.stage.findUnique({ where: { id: toStageId }, select: { type: true } }),
@@ -76,9 +76,9 @@ export async function moveTask(taskId: string, toStageId: string, toIndex: numbe
         updatedAt: new Date(),
       },
     })
-    await renumberColumn(tx, user.id, toStageId, taskId, toIndex)
+    await renumberColumn(tx, workspaceId, toStageId, taskId, toIndex)
     if (fromStageId && fromStageId !== toStageId) {
-      await renumberColumn(tx, user.id, fromStageId)
+      await renumberColumn(tx, workspaceId, fromStageId)
     }
   })
 
@@ -89,15 +89,15 @@ export async function moveTask(taskId: string, toStageId: string, toIndex: numbe
 
 export async function createTask(stageId: string, title: string) {
   await assertPermission("tasks", "write")
-  const user = await getCurrentUser()
+  const { workspaceId } = await getWorkspaceIdentity()
   const clean = title.trim()
   if (!clean) throw new Error("A task needs a title.")
 
-  await assertStageInBoard(user.id, "TASKS", stageId)
-  const board = await ensureBoard(user.id, "TASKS")
+  await assertStageInBoard(workspaceId, "TASKS", stageId)
+  const board = await ensureBoard(workspaceId, "TASKS")
 
   const last = await prisma.task.findFirst({
-    where: { userId: user.id, stageId },
+    where: { userId: workspaceId, stageId },
     orderBy: { position: "desc" },
     select: { position: true },
   })
@@ -107,8 +107,8 @@ export async function createTask(stageId: string, title: string) {
     data: {
       // The CRM tables carry no column defaults for these - see src/lib/boards.ts.
       id: randomUUID(),
-      userId: user.id,
-      orgId: await currentOrgId(user.id),
+      userId: workspaceId,
+      orgId: await currentOrgId(workspaceId),
       pipelineId: board.id,
       stageId,
       title: clean,
@@ -142,10 +142,10 @@ export async function scheduleTask(input: {
   notes?: string | null
 }) {
   await assertPermission("tasks", "write")
-  const user = await getCurrentUser()
+  const { workspaceId } = await getWorkspaceIdentity()
 
   const task = await prisma.task.findFirst({
-    where: { id: input.taskId, userId: user.id },
+    where: { id: input.taskId, userId: workspaceId },
     select: { id: true },
   })
   if (!task) throw new Error("That task no longer exists.")
@@ -160,7 +160,7 @@ export async function scheduleTask(input: {
   if (input.title !== undefined && !title) throw new Error("A task needs a title.")
 
   const assigneeId =
-    input.assigneeId === undefined ? undefined : await resolveAssignee(user.id, input.assigneeId)
+    input.assigneeId === undefined ? undefined : await resolveAssignee(workspaceId, input.assigneeId)
 
   await prisma.task.update({
     where: { id: input.taskId },
@@ -207,11 +207,11 @@ function parseLocalDateTime(value: string | null | undefined): Date | null {
 
 export async function setTaskDone(taskId: string, done: boolean) {
   await assertPermission("tasks", "write")
-  const user = await getCurrentUser()
-  const board = await ensureBoard(user.id, "TASKS")
+  const { workspaceId } = await getWorkspaceIdentity()
+  const board = await ensureBoard(workspaceId, "TASKS")
 
   const task = await prisma.task.findFirst({
-    where: { id: taskId, userId: user.id },
+    where: { id: taskId, userId: workspaceId },
     select: { id: true },
   })
   if (!task) throw new Error("That task no longer exists.")
