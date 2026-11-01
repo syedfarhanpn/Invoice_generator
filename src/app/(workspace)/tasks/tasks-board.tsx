@@ -1,7 +1,8 @@
 "use client"
 
-import { useState, useTransition } from "react"
+import { useMemo, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
+import { Trash2 } from "lucide-react"
 
 import { Board, type BoardCard, type BoardColumn } from "@/components/board/board"
 import { Button } from "@/components/ui/button"
@@ -19,7 +20,7 @@ import { Textarea } from "@/components/ui/textarea"
 import type { WorkspaceMember } from "@/lib/members"
 
 import type { TaskDetail } from "./page"
-import { createTask, moveTask, scheduleTask } from "./actions"
+import { createTask, deleteTask, moveTask, scheduleTask } from "./actions"
 
 /**
  * The tasks board plus the panel that gives a card its date and time.
@@ -42,11 +43,53 @@ export function TasksBoard({
   const [openId, setOpenId] = useState<string | null>(null)
   const task = openId ? details[openId] : null
 
+  // Tasks deleted on this screen, hidden before the server has confirmed it.
+  // Filtering here rather than inside the board: a new `cards` array is what
+  // the board already treats as fresh server data, so the card leaves the
+  // same way a revalidation would remove it. Ids are never taken back out on
+  // success - a deleted id cannot reappear, so there is nothing to undo.
+  const [removed, setRemoved] = useState<ReadonlySet<string>>(new Set())
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [, startDelete] = useTransition()
+
+  const visibleCards = useMemo(
+    () => (removed.size > 0 ? cards.filter((card) => !removed.has(card.id)) : cards),
+    [cards, removed]
+  )
+
+  const remove = (taskId: string) => {
+    setOpenId(null)
+    setDeleteError(null)
+    setRemoved((prev) => new Set(prev).add(taskId))
+    startDelete(async () => {
+      try {
+        await deleteTask(taskId)
+      } catch {
+        // Put it back: the card has to reflect what is actually saved.
+        setRemoved((prev) => {
+          const next = new Set(prev)
+          next.delete(taskId)
+          return next
+        })
+        setDeleteError("That task could not be deleted. It has been put back.")
+      }
+    })
+  }
+
   return (
     <>
+      {deleteError && (
+        <div
+          role="alert"
+          className="mx-4 mt-3 rounded-lg bg-tone-danger-bg px-3 py-2 text-sm text-tone-danger"
+        >
+          {deleteError}
+        </div>
+      )}
+
       <Board
         columns={columns}
-        cards={cards}
+        cards={visibleCards}
         onMove={moveTask}
         onCreate={createTask}
         onOpen={setOpenId}
@@ -56,7 +99,13 @@ export function TasksBoard({
       <Dialog open={task != null} onOpenChange={(open) => !open && setOpenId(null)}>
         <DialogContent>
           {task && (
-            <ScheduleForm task={task} members={members} onDone={() => setOpenId(null)} />
+            <ScheduleForm
+              key={task.id}
+              task={task}
+              members={members}
+              onDone={() => setOpenId(null)}
+              onDelete={() => remove(task.id)}
+            />
           )}
         </DialogContent>
       </Dialog>
@@ -68,11 +117,17 @@ function ScheduleForm({
   task,
   members,
   onDone,
+  onDelete,
 }: {
   task: TaskDetail
   members: WorkspaceMember[]
   onDone: () => void
+  onDelete: () => void
 }) {
+  // Two clicks, both inside the dialog. A native confirm() stacked on top of
+  // a modal is a second modal, and for a to-do item that is more ceremony
+  // than the decision deserves - but one stray click should not erase it.
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [title, setTitle] = useState(task.title)
   const [assigneeId, setAssigneeId] = useState(task.assigneeId ?? "")
   const [dueAt, setDueAt] = useState(task.dueAtLocal)
@@ -195,8 +250,35 @@ function ScheduleForm({
 
         {error && <p className="text-sm text-destructive">{error}</p>}
 
-        <DialogFooter>
-          <Button type="submit" disabled={pending}>
+        <DialogFooter className="sm:justify-between">
+          {confirmingDelete ? (
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">Delete this task?</span>
+              <Button type="button" variant="destructive" size="sm" onClick={onDelete}>
+                Delete
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setConfirmingDelete(false)}
+              >
+                Keep
+              </Button>
+            </div>
+          ) : (
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={pending}
+              onClick={() => setConfirmingDelete(true)}
+              className="text-muted-foreground hover:text-destructive"
+            >
+              <Trash2 className="mr-1.5 size-4" strokeWidth={1.75} aria-hidden />
+              Delete
+            </Button>
+          )}
+          <Button type="submit" disabled={pending || confirmingDelete}>
             {pending ? "Saving..." : "Save"}
           </Button>
         </DialogFooter>

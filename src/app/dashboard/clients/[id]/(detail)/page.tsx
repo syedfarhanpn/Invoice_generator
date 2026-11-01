@@ -1,4 +1,4 @@
-import { requirePermission } from "@/lib/access"
+import { hasPermission, isWorkspaceAdmin, requirePermission } from "@/lib/access"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { buttonVariants, Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -8,10 +8,14 @@ import { getWorkspaceIdentity } from "@/lib/workspace-identity"
 import { notFound } from "next/navigation"
 
 import { PortalAccess } from "@/components/app/portal-access"
+import { DeleteClient } from "./delete-client"
 import { formatTableDay } from "@/lib/dates"
 import { archiveClient } from "../../actions"
 import { LifecycleBadge, PaymentBadge } from "@/components/app/status-badge"
 import { formatMoney } from "@/lib/money"
+import { proposalsReady } from "@/lib/proposals/store"
+import { formatProposalMoney } from "@/lib/proposals/view"
+import { ProposalStatusBadge } from "@/app/dashboard/proposals/status"
 
 export const metadata = { title: "Client" }
 
@@ -20,6 +24,8 @@ export default async function ClientProfilePage(props: { params: Promise<{ id: s
 
   const params = await props.params
   const { workspaceId } = await getWorkspaceIdentity()
+  // Whether to OFFER the delete. The action refuses non-admins on its own.
+  const canDelete = await isWorkspaceAdmin()
 
   const client = await prisma.client.findUnique({
     where: { id: params.id, userId: workspaceId },
@@ -31,6 +37,18 @@ export default async function ClientProfilePage(props: { params: Promise<{ id: s
   })
 
   if (!client) return notFound()
+
+  // Their proposals share the client's code with their invoices. Read only
+  // once the proposals table exists, and only by someone who may see them.
+  const canSeeProposals = (await hasPermission("documents", "read")) && (await proposalsReady())
+  const canWriteProposals = canSeeProposals && (await hasPermission("documents", "write"))
+  const proposals = canSeeProposals
+    ? await prisma.proposal.findMany({
+        where: { clientId: client.id, userId: workspaceId },
+        orderBy: { createdAt: "desc" },
+        select: { id: true, refNumber: true, title: true, status: true, currency: true, totalAmount: true, issueDate: true },
+      })
+    : []
 
   return (
     <div className="space-y-6">
@@ -55,6 +73,11 @@ export default async function ClientProfilePage(props: { params: Promise<{ id: s
           <form action={archiveClient.bind(null, client.id, !client.archivedAt)}>
             <Button type="submit" variant="outline">{client.archivedAt ? "Unarchive" : "Archive"}</Button>
           </form>
+          {canWriteProposals && (
+            <Link href={`/dashboard/proposals/new?client=${client.id}`} className={buttonVariants({ variant: "outline" })}>
+              New Proposal
+            </Link>
+          )}
           <Link href={`/dashboard/documents/new?client=${client.id}`} className={buttonVariants()}>
             Create Document
           </Link>
@@ -70,7 +93,7 @@ export default async function ClientProfilePage(props: { params: Promise<{ id: s
             <CardContent className="space-y-4">
               <div>
                 <div className="text-sm font-medium text-muted-foreground">Email</div>
-                <div>{client.email}</div>
+                <div>{client.email || <span className="text-muted-foreground">Not given</span>}</div>
               </div>
               {client.phone && (
                 <div>
@@ -129,6 +152,31 @@ export default async function ClientProfilePage(props: { params: Promise<{ id: s
         </div>
 
         <div className="md:col-span-2 space-y-6">
+          {canSeeProposals && proposals.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Proposals</CardTitle>
+              </CardHeader>
+              <CardContent className="divide-y">
+                {proposals.map((proposal) => (
+                  <div key={proposal.id} className="flex flex-wrap items-center gap-2 py-2.5 first:pt-0 last:pb-0">
+                    <Link href={`/dashboard/proposals/${proposal.id}`} className="font-semibold hover:underline">
+                      {proposal.refNumber}
+                    </Link>
+                    <span className="min-w-0 truncate text-sm text-muted-foreground">{proposal.title}</span>
+                    <ProposalStatusBadge status={proposal.status} />
+                    <span className="ml-auto text-sm font-medium tabular-nums">
+                      {proposal.totalAmount != null
+                        ? formatProposalMoney(Number(proposal.totalAmount), proposal.currency)
+                        : "To be confirmed"}
+                    </span>
+                    <span className="w-full text-sm text-muted-foreground sm:w-auto">{formatTableDay(proposal.issueDate)}</span>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
+
           <Card>
             <CardHeader>
               <CardTitle>Document History</CardTitle>
@@ -183,6 +231,14 @@ export default async function ClientProfilePage(props: { params: Promise<{ id: s
         invitedOn={client.portalInvitedAt ? formatTableDay(client.portalInvitedAt) : null}
         activeSince={client.portalEnabledAt ? formatTableDay(client.portalEnabledAt) : null}
       />
+
+      {canDelete && (
+        <DeleteClient
+          clientId={client.id}
+          clientName={client.businessName || client.fullName}
+          archived={client.archivedAt !== null}
+        />
+      )}
     </div>
   )
 }

@@ -1,11 +1,13 @@
 "use server"
 
 import prisma from "@/lib/db"
-import { assertPermission } from "@/lib/access"
+import { assertPermission, assertWorkspaceAdmin } from "@/lib/access"
 import { normalizeClientCode, suggestClientCode } from "@/lib/client-code"
+import { confirmationMatches, type ClientImpact } from "@/lib/client-deletion"
 import { allocateClientNumber } from "@/lib/allocate-ref"
 import { sendPortalInvite, type InviteOutcome } from "@/lib/invites"
 import { getWorkspaceIdentity } from "@/lib/workspace-identity"
+import { proposalsReady } from "@/lib/proposals/store"
 import { revalidatePath } from "next/cache"
 
 // Note: these actions return { id } instead of calling redirect() themselves.
@@ -17,7 +19,9 @@ import { revalidatePath } from "next/cache"
 export type ClientFormInput = {
   fullName: string
   businessName?: string
-  email: string
+  // Optional: a proposal can go out on a name and a phone number. Anything
+  // that actually emails a client (the portal invite) checks for one itself.
+  email?: string
   phone?: string
   address?: string
   country?: string
@@ -47,7 +51,6 @@ export async function createClient(input: ClientFormInput) {
   const { workspaceId } = await getWorkspaceIdentity()
 
   if (!input.fullName?.trim()) throw new Error("Full name is required")
-  if (!input.email?.trim()) throw new Error("Email is required")
 
   const nameForCode = input.businessName?.trim() || input.fullName.trim()
   let code = input.code ? normalizeClientCode(input.code) : ""
@@ -66,7 +69,7 @@ export async function createClient(input: ClientFormInput) {
         code,
         fullName: input.fullName.trim(),
         businessName: input.businessName?.trim() || null,
-        email: input.email.trim(),
+        email: input.email?.trim() ?? "",
         phone: input.phone?.trim() || null,
         address: input.address?.trim() || null,
         country: input.country?.trim() || null,
@@ -116,7 +119,7 @@ export async function updateClient(id: string, input: ClientFormInput) {
       code,
       fullName: input.fullName.trim(),
       businessName: input.businessName?.trim() || null,
-      email: input.email.trim(),
+      email: input.email?.trim() ?? "",
       phone: input.phone?.trim() || null,
       address: input.address?.trim() || null,
       country: input.country?.trim() || null,
@@ -143,6 +146,236 @@ export async function archiveClient(id: string, archived: boolean) {
   revalidatePath(`/dashboard/clients/${id}`)
 }
 
+
+// ---------------------------------------------------------------------------
+// Deleting a client outright.
+//
+// The bulk path in src/app/dashboard/bulk-actions.ts refuses any client who
+// has ever been billed, and keeps doing so: a mis-ticked checkbox must not be
+// able to take an invoice ledger with it. This is the deliberate way through,
+// and it is shaped to make the act hard to do by accident:
+//
+//   - owner or admin only, not everyone holding `clients: write`
+//   - the counts are read and shown BEFORE anything is removed
+//   - the client's own code has to be typed back
+//   - one client at a time, never a selection
+//
+// Everything is deleted explicitly, in dependency order, rather than leaning
+// on the ON DELETE rules. Those differ per relation - Document cascades,
+// Subscription nulls, CompanyProfile would restrict - so a delete that
+// trusted them would quietly do a different thing to each table. Doing it by
+// hand means what this function says is what happens.
+//
+// What deliberately SURVIVES: expenses. Money the business spent is its own
+// record, not the client's. Expense.projectId nulls out and
+// src/lib/expense-summary.ts already reports such a row as "Project removed",
+// so every rupee is still accounted for.
+// ---------------------------------------------------------------------------
+
+export type ClientDeletionTarget = {
+  id: string
+  code: string
+  name: string
+  impact: ClientImpact
+}
+
+/**
+ * The counts behind the confirmation dialog.
+ *
+ * Read through its own action rather than rendered into the page, because
+ * the dialog opens long after the page did and a count from twenty minutes
+ * ago would under-report what is about to be destroyed.
+ */
+export async function getClientDeletionImpact(clientId: string): Promise<ClientDeletionTarget> {
+  await assertPermission("clients", "read")
+  await assertWorkspaceAdmin()
+  const { workspaceId } = await getWorkspaceIdentity()
+
+  const client = await prisma.client.findFirst({
+    where: { id: clientId, userId: workspaceId },
+    select: { id: true, code: true, fullName: true, businessName: true, portalUserId: true },
+  })
+  if (!client) throw new Error("That client no longer exists.")
+
+  const byClient = { userId: workspaceId, clientId } as const
+
+  const [
+    documents,
+    issuedDocuments,
+    payments,
+    projects,
+    tasks,
+    deals,
+    contacts,
+    subscriptions,
+    tickets,
+    activities,
+    expenses,
+    proposals,
+  ] = await Promise.all([
+    prisma.document.count({ where: byClient }),
+    // "Issued" is defined by the serial, not the status: FINALIZED, SIGNED,
+    // VOID and ARCHIVED have all had a number allocated, and it is the
+    // number going missing that leaves the gap.
+    prisma.document.count({ where: { ...byClient, refNumber: { not: null } } }),
+    prisma.payment.count({ where: { userId: workspaceId, document: { clientId } } }),
+    prisma.project.count({ where: byClient }),
+    // Both kinds: a task filed against the client, and a task on one of
+    // their projects that names no client.
+    prisma.task.count({
+      where: { userId: workspaceId, OR: [{ clientId }, { project: { clientId } }] },
+    }),
+    prisma.deal.count({ where: byClient }),
+    prisma.contact.count({ where: byClient }),
+    prisma.subscription.count({ where: byClient }),
+    prisma.ticket.count({ where: byClient }),
+    prisma.activity.count({ where: byClient }),
+    // Counted to be reported as KEPT, not as removed.
+    prisma.expense.count({ where: { userId: workspaceId, project: { clientId } } }),
+    // The database removes these with the client (ON DELETE CASCADE); counted
+    // so the confirmation says so. Zero until the proposals table exists.
+    proposalsReady().then((ready) => (ready ? prisma.proposal.count({ where: byClient }) : 0)),
+  ])
+
+  return {
+    id: client.id,
+    code: client.code,
+    name: client.businessName || client.fullName,
+    impact: {
+      documents,
+      issuedDocuments,
+      payments,
+      proposals,
+      projects,
+      tasks,
+      deals,
+      contacts,
+      subscriptions,
+      tickets,
+      activities,
+      expenses,
+      hasPortalAccount: client.portalUserId !== null,
+    },
+  }
+}
+
+export type ClientDeletionResult = {
+  name: string
+  documents: number
+  projects: number
+  /** Everything else that went, as one figure for the confirmation message. */
+  otherRecords: number
+  /** Expenses re-pointed at no project rather than deleted. */
+  expensesKept: number
+}
+
+/**
+ * Deletes a client and everything belonging to them.
+ *
+ * `confirmation` is the client code, typed by the administrator. Checked here
+ * and not only in the dialog: a Server Action is a public endpoint, so the
+ * typed confirmation is part of the request to be validated, not a UI step
+ * that can be assumed to have happened.
+ */
+export async function deleteClient(
+  clientId: string,
+  confirmation: string
+): Promise<ClientDeletionResult> {
+  // Both gates. The module grant can still be withdrawn from an admin by an
+  // override, and an override that says so is honoured.
+  await assertPermission("clients", "write")
+  await assertWorkspaceAdmin()
+  const { workspaceId } = await getWorkspaceIdentity()
+
+  const client = await prisma.client.findFirst({
+    where: { id: clientId, userId: workspaceId },
+    select: { id: true, code: true, fullName: true, businessName: true },
+  })
+  if (!client) throw new Error("That client no longer exists.")
+
+  if (!confirmationMatches(confirmation, client.code)) {
+    throw new Error(`Type the client code ${client.code} to confirm.`)
+  }
+
+  const expensesKept = await prisma.expense.count({
+    where: { userId: workspaceId, project: { clientId } },
+  })
+
+  const byClient = { userId: workspaceId, clientId } as const
+  // Asked outside the transaction: on a database without the proposals
+  // table, a query against it would abort the whole delete.
+  const hasProposalsTable = await proposalsReady()
+
+  const removed = await prisma.$transaction(
+    async (tx) => {
+      // Children before parents throughout, so no statement depends on a
+      // cascade having fired. Payments and document activity are reachable
+      // only through their document, so they are scoped through the relation.
+      await tx.payment.deleteMany({ where: { userId: workspaceId, document: { clientId } } })
+      await tx.documentActivity.deleteMany({
+        where: { document: { clientId, userId: workspaceId } },
+      })
+      const documents = await tx.document.deleteMany({ where: byClient })
+      const proposals = hasProposalsTable ? await tx.proposal.deleteMany({ where: byClient }) : { count: 0 }
+
+      await tx.ticketReply.deleteMany({ where: { ticket: { clientId, userId: workspaceId } } })
+      const tickets = await tx.ticket.deleteMany({ where: byClient })
+
+      const subscriptions = await tx.subscription.deleteMany({ where: byClient })
+
+      // Before the projects, so this is a delete rather than a cascade - the
+      // same rows either way, but counted and not inferred.
+      const tasks = await tx.task.deleteMany({
+        where: { userId: workspaceId, OR: [{ clientId }, { project: { clientId } }] },
+      })
+      const activities = await tx.activity.deleteMany({ where: byClient })
+      await tx.companyProfile.deleteMany({ where: byClient })
+
+      // Nulls Expense.projectId on the way out. That is the one referential
+      // action relied on, and it is relied on to KEEP a row, not remove one.
+      const projects = await tx.project.deleteMany({ where: byClient })
+
+      // Deals before contacts: Deal.primaryContactId points at a Contact.
+      const deals = await tx.deal.deleteMany({ where: byClient })
+      const contacts = await tx.contact.deleteMany({ where: byClient })
+
+      // deleteMany, not delete: the tenant boundary belongs in the WHERE
+      // clause, and a row already gone should report plainly rather than
+      // throwing a record-not-found from the middle of a transaction.
+      const self = await tx.client.deleteMany({ where: { id: clientId, userId: workspaceId } })
+      if (self.count !== 1) throw new Error("That client no longer exists.")
+
+      return {
+        documents: documents.count,
+        projects: projects.count,
+        otherRecords:
+          proposals.count +
+          tickets.count +
+          subscriptions.count +
+          tasks.count +
+          activities.count +
+          deals.count +
+          contacts.count,
+      }
+    },
+    // Thirteen statements against a long-standing client with hundreds of
+    // tasks and documents. The default five seconds is the limit that broke
+    // the board renumber; it is not worth meeting again here.
+    { timeout: 30_000 }
+  )
+
+  // A client reaches into clients, documents, projects, tasks, renewals,
+  // tickets, the calendar, the dashboard and every report, so the cheap
+  // targeted revalidations would each leave one page showing a client that
+  // no longer exists.
+  revalidatePath("/", "layout")
+
+  return {
+    name: client.businessName || client.fullName,
+    ...removed,
+    expensesKept,
+  }
+}
 
 /**
  * Invites a client to their portal, or sends the invitation again.

@@ -70,7 +70,16 @@ const JOINED = new Intl.DateTimeFormat("en-GB", {
   year: "numeric",
 })
 
-export function ClientsTable({ rows, currency }: { rows: ClientRow[]; currency: string }) {
+export function ClientsTable({
+  rows,
+  currency,
+  canDelete,
+}: {
+  rows: ClientRow[]
+  currency: string
+  /** Whether the viewer may delete a client outright - owners and admins. */
+  canDelete: boolean
+}) {
   const router = useRouter()
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [selectMode, setSelectMode] = useState(false)
@@ -137,15 +146,20 @@ export function ClientsTable({ rows, currency }: { rows: ClientRow[]; currency: 
       confirm: (n) => `Restore ${n} client${n === 1 ? "" : "s"}?`,
       run: () => bulkArchiveClients(selectedRows.filter((r) => r.archived).map((r) => r.id), false),
     },
-    {
-      key: "delete",
-      label: "Delete",
-      eligible: deletable.length,
-      variant: "destructive",
-      confirm: (n) =>
-        `Permanently delete ${n} client${n === 1 ? "" : "s"}? Only clients with no documents are removed - anyone you have billed is left untouched.`,
-      run: () => bulkDeleteClients(deletable.map((r) => r.id)),
-    },
+    // Offered only to owners and admins; the action refuses anyone else.
+    ...(canDelete
+      ? [
+          {
+            key: "delete",
+            label: "Delete",
+            eligible: deletable.length,
+            variant: "destructive",
+            confirm: (n: number) =>
+              `Permanently delete ${n} client${n === 1 ? "" : "s"}? Only clients with no documents are removed - anyone you have billed is left untouched.`,
+            run: () => bulkDeleteClients(deletable.map((r) => r.id)),
+          } satisfies BulkAction,
+        ]
+      : []),
   ]
 
   const columnCount = selectMode ? 10 : 9
@@ -371,6 +385,19 @@ export function ClientsTable({ rows, currency }: { rows: ClientRow[]; currency: 
                             >
                               New document
                             </DropdownMenuItem>
+                            {canDelete && (
+                              // Opens the client's own danger zone rather than
+                              // deleting from here. A row menu cannot show what
+                              // is about to be destroyed, and this delete is not
+                              // one to take on trust from a hover menu.
+                              <DropdownMenuItem
+                                onClick={() =>
+                                  router.push(`/dashboard/clients/${row.id}#delete-client`)
+                                }
+                              >
+                                Delete client...
+                              </DropdownMenuItem>
+                            )}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </span>

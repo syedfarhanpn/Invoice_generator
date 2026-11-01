@@ -93,7 +93,7 @@ export default function ClientForm({
             </div>
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
-              <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+              <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="phone">Phone</Label>

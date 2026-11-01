@@ -1,13 +1,21 @@
 "use client"
 
 import { useMemo, useState, useTransition } from "react"
+import { useRouter } from "next/navigation"
 import { Download, Search, SlidersHorizontal } from "lucide-react"
 
-import { createDeal, moveDeal } from "@/app/(workspace)/crm/actions"
+import {
+  bulkArchiveDeals,
+  bulkDeleteDeals,
+  createDeal,
+  moveDeal,
+} from "@/app/(workspace)/crm/actions"
 import { startProjectFromDeal } from "@/app/(workspace)/projects/actions"
 import { Board, type BoardCard, type BoardColumn } from "@/components/board/board"
 import { Pagination } from "@/components/app/pagination"
+import { SelectionBar, type BulkAction } from "@/components/app/selection-bar"
 import { LeadsListView } from "@/components/workspace/leads-list-view"
+import { partitionDeals } from "@/lib/bulk-actions"
 import { pageSlice } from "@/lib/pagination"
 import { Button } from "@/components/ui/button"
 import {
@@ -99,14 +107,25 @@ export function DealTable({
   details,
   clients,
   members,
+  canDelete,
+  currency,
 }: {
   rows: DealRow[]
   stages: StageColumn[]
   details: Record<string, DealDetailData>
   clients: ClientOption[]
   members: WorkspaceMember[]
+  /** Whether the viewer may delete leads outright - owners and admins. */
+  canDelete: boolean
+  /** The workspace currency, which the board's totals lead with. */
+  currency: string
 }) {
+  const router = useRouter()
   const [view, setView] = useState<View>("inbox")
+  // Select mode, as on the clients table: the checkbox column appears only
+  // when asked for, so the everyday list stays the reference's layout.
+  const [selectMode, setSelectMode] = useState(false)
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
   const [query, setQuery] = useState("")
   const [compact, setCompact] = useState(false)
   const [stageFilter, setStageFilter] = useState<string>("all")
@@ -147,10 +166,9 @@ export function DealTable({
   const cards: BoardCard[] = useMemo(
     () =>
       filtered.map((row) => {
+        // The value is drawn on its own line by the board now, and totalled
+        // per column - so it is no longer one of the badges as well.
         const badges: BoardCard["badges"] = []
-        if (row.value != null) {
-          badges.push({ label: formatMoney(row.value, row.currency), tone: "muted" })
-        }
         if (row.nextTaskDueAt) {
           const { label, tone } = describeDue(row.nextTaskDueAt)
           badges.push({ label, tone: tone === "overdue" || tone === "today" ? "danger" : "muted" })
@@ -168,6 +186,8 @@ export function DealTable({
           subtitle: row.clientName || row.contactName || null,
           badges,
           done: row.stageType === "WON",
+          value: row.value,
+          currency: row.currency,
         }
       }),
     [filtered]
@@ -184,9 +204,58 @@ export function DealTable({
   // has - see the note in src/components/app/pagination.tsx.
   const visible = pageSlice(filtered, page, pageSize)
 
+  // Selection survives paging and filtering on purpose - tick junk on page
+  // one, filter by source, tick more - and the bar's count says how many are
+  // armed. Read against `rows` so a lead that disappears is dropped from it.
+  const selectedRows = rows.filter((r) => selected.has(r.id))
+  const deletable = partitionDeals(
+    selectedRows.map((r) => ({ id: r.id, won: r.stageType === "WON" }))
+  ).eligible
+  const keptWon = selectedRows.length - deletable.length
+
+  const toggle = (id: string, on: boolean) =>
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (on) next.add(id)
+      else next.delete(id)
+      return next
+    })
+
+  const clearSelection = () => setSelected(new Set())
+
+  const bulkActions: BulkAction[] = [
+    {
+      key: "archive",
+      label: "Archive",
+      eligible: selectedRows.length,
+      variant: "outline",
+      confirm: (n) =>
+        `Archive ${n} lead${n === 1 ? "" : "s"}? They leave every list and the board, and nothing is deleted.`,
+      run: () => bulkArchiveDeals(selectedRows.map((r) => r.id)),
+    },
+    // Offered only to owners and admins; the action refuses anyone else.
+    ...(canDelete
+      ? [
+          {
+            key: "delete",
+            label: "Delete",
+            eligible: deletable.length,
+            variant: "destructive",
+            confirm: (n: number) =>
+              `Permanently delete ${n} lead${n === 1 ? "" : "s"}? Their notes, follow-up tasks and contact details go with them. This cannot be undone.` +
+              (keptWon > 0
+                ? `\n\n${keptWon} won lead${keptWon === 1 ? " is" : "s are"} kept - won leads are your sales history.`
+                : ""),
+            run: () => bulkDeleteDeals(deletable.map((r) => r.id)),
+          } satisfies BulkAction,
+        ]
+      : []),
+  ]
+
   return (
+    <>
     <div className="flex flex-col overflow-hidden rounded-xl border bg-card">
-      <header className="flex h-14 shrink-0 items-center justify-between gap-4 border-b px-4">
+      <header className="flex min-h-14 shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b px-4 py-2.5">
         <div role="group" aria-label="View" className="flex items-center gap-0.5">
           {VIEWS.map((v) => (
             <button
@@ -206,7 +275,7 @@ export function DealTable({
           ))}
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <div className="relative">
             <Search
               className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground"
@@ -261,6 +330,20 @@ export function DealTable({
               >
                 <Download className="size-4" strokeWidth={1.75} />
               </a>
+
+              <Button
+                type="button"
+                size="sm"
+                variant={selectMode ? "default" : "outline"}
+                aria-pressed={selectMode}
+                onClick={() => {
+                  // Leaving Select mode disarms whatever was ticked.
+                  if (selectMode) clearSelection()
+                  setSelectMode((on) => !on)
+                }}
+              >
+                Select
+              </Button>
             </>
           )}
 
@@ -285,9 +368,12 @@ export function DealTable({
           onCreate={createDeal}
           onOpen={setEditingId}
           addLabel="Add a lead"
+          totals={{ currency }}
         />
       ) : (
-        <div className="overflow-x-auto">
+        // Relative so the table's screen-reader labels, which are absolutely
+        // positioned, are clipped here instead of widening the whole page.
+        <div className="relative overflow-x-auto">
           {filtered.length === 0 ? (
             <div className="flex h-full min-h-64 flex-col items-center justify-center gap-1 px-6 text-center">
               <p className="text-sm text-foreground">
@@ -312,6 +398,7 @@ export function DealTable({
                 rows={visible}
                 onOpen={setEditingId}
                 startIndex={(page - 1) * pageSize}
+                selection={selectMode ? { selected, onToggle: toggle } : undefined}
               />
             )
           )}
@@ -340,6 +427,21 @@ export function DealTable({
       />
       <WonPrompt deal={wonDeal} onClose={() => setWonDeal(null)} />
     </div>
+
+    {/* Outside the bordered box: that box clips its overflow, and a sticky
+        bar inside it would stick to the box rather than to the screen. */}
+    {view === "inbox" && selectMode && (
+      <SelectionBar
+        selectedCount={selectedRows.length}
+        actions={bulkActions}
+        onClear={clearSelection}
+        onDone={() => {
+          clearSelection()
+          router.refresh()
+        }}
+      />
+    )}
+    </>
   )
 }
 
@@ -471,4 +573,3 @@ function ListView({
     </table>
   )
 }
-

@@ -29,7 +29,13 @@ export function canVoidDocument(status: DocumentStatus): boolean {
 /**
  * Document.clientId cascades on delete, so removing a client with documents
  * would silently take their invoices - and the payment ledger under them -
- * with it. A client that has ever been billed can only be archived.
+ * with it. A client that has ever been billed is skipped here.
+ *
+ * This is the rule for the BULK path, where the only thing standing between a
+ * mis-ticked checkbox and an invoice ledger is this function. Deleting a
+ * billed client is still possible, deliberately and one at a time: see
+ * deleteClient() in src/app/dashboard/clients/actions.ts, which is restricted
+ * to administrators, counts what will go, and makes them type the client code.
  */
 export function canDeleteClient(documentCount: number): boolean {
   return documentCount === 0
@@ -70,5 +76,32 @@ export function partitionClients(rows: ClientRowState[]): Partitioned<ClientRowS
   return {
     eligible: rows.filter((r) => canDeleteClient(r.documentCount)),
     blocked: rows.filter((r) => !canDeleteClient(r.documentCount)),
+  }
+}
+
+export type DealRowState = { id: string; won: boolean }
+
+/**
+ * A won lead is kept out of a bulk delete.
+ *
+ * Bulk delete exists to clear junk - spam form fills, duplicates, test rows -
+ * and a won lead is never junk: it is the sales history the revenue reports
+ * count, and often the record a client or a project was started from. One
+ * mis-ticked select-all should not be able to rewrite last quarter's numbers.
+ * Moving a won lead back out of Won first makes it deletable, which keeps the
+ * door open while making it a decision rather than a side effect.
+ */
+export function canDeleteDeal(won: boolean): boolean {
+  return !won
+}
+
+export function whyDealBlocked(won: boolean): string | null {
+  return canDeleteDeal(won) ? null : "won - part of your sales history"
+}
+
+export function partitionDeals(rows: DealRowState[]): Partitioned<DealRowState> {
+  return {
+    eligible: rows.filter((r) => canDeleteDeal(r.won)),
+    blocked: rows.filter((r) => !canDeleteDeal(r.won)),
   }
 }

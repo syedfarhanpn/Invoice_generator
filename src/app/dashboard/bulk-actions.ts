@@ -5,7 +5,7 @@ import { z } from "zod"
 
 import prisma from "@/lib/db"
 import { getWorkspaceIdentity } from "@/lib/workspace-identity"
-import { assertPermission } from "@/lib/access"
+import { assertPermission, assertWorkspaceAdmin } from "@/lib/access"
 import { canDeleteClient, canDeleteDocument, canVoidDocument } from "@/lib/bulk-actions"
 
 /**
@@ -101,9 +101,14 @@ export async function bulkVoidDocuments(ids: string[]): Promise<BulkResult> {
  * Client -> Document is ON DELETE CASCADE, so deleting a client with documents
  * would take their invoices and payment history with it. Those are skipped and
  * must be archived instead.
+ *
+ * Owners and admins only, as deleting a single client is. Everyone else who
+ * may edit clients can still archive them, which clears the junk from view
+ * without destroying anything.
  */
 export async function bulkDeleteClients(ids: string[]): Promise<BulkResult> {
   await assertPermission("clients", "write")
+  await assertWorkspaceAdmin()
   const { workspaceId } = await getWorkspaceIdentity()
   const parsed = idsSchema.safeParse(ids)
   if (!parsed.success) throw new Error("Nothing valid was selected.")

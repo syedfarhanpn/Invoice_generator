@@ -5,7 +5,7 @@ import { AreaChart } from "@/components/app/area-chart"
 import { DonutChart } from "@/components/app/donut-chart"
 import { StatCard, StatRow } from "@/components/app/stat-card"
 import { buttonVariants } from "@/components/ui/button"
-import { requirePermission } from "@/lib/access"
+import { isWorkspaceAdmin, requirePermission } from "@/lib/access"
 import { getClientStats } from "@/lib/client-stats"
 import { currencyDecimals } from "@/lib/currencies"
 import prisma from "@/lib/db"
@@ -36,6 +36,8 @@ export default async function ClientsPage() {
   await requirePermission("clients", "read")
 
   const identity = await getWorkspaceIdentity()
+  // Only an owner or admin is offered the delete; the action refuses the rest.
+  const canDelete = await isWorkspaceAdmin()
   const now = new Date()
   const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
 
@@ -292,7 +294,7 @@ export default async function ClientsPage() {
         </section>
       </div>
 
-      <ClientsTable rows={rows} currency={currency} />
+      <ClientsTable rows={rows} currency={currency} canDelete={canDelete} />
     </div>
   )
 }

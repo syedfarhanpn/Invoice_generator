@@ -78,6 +78,7 @@ model Organisation {
   businessProfiles BusinessProfile[]
   clients          Client[]
   documents        Document[]
+  proposals        Proposal[]
   payments         Payment[]
   apiKeys          ApiKey[]
   pipelines        Pipeline[]
@@ -247,6 +248,7 @@ model User {
   businessProfile BusinessProfile?
   clients         Client[]
   documents       Document[]
+  proposals       Proposal[]
   clientSeq       Int       @default(0) // next Client.clientNumber to hand out
   ticketSeq       Int       @default(0) // next Ticket.number to hand out
 
@@ -456,6 +458,9 @@ model Client {
   receiptSeq  Int @default(0)
 
   documents Document[]
+  // Proposals number on their own series (PROP-ACME-001) with the same code,
+  // so a proposal and the invoices that follow it read as one client.
+  proposals Proposal[]
 
   // CRM (schema "crm")
   deals           Deal[]
@@ -579,6 +584,68 @@ model Document {
   @@index([userId, createdAt])
   @@index([convertedFromId])
   @@index([clientId])
+  @@index([orgId])
+  @@schema("public")
+}
+
+enum ProposalStatus {
+  DRAFT    // written, not yet marked as sent
+  SENT
+  ACCEPTED
+  DECLINED
+  @@schema("public")
+}
+
+/// A written project proposal, drafted by Claude from a short brief.
+///
+/// Its own table rather than a fifth DocumentType: an invoice-family document
+/// is line items and tax, a proposal is prose sections, and forcing one into
+/// the other's editor would serve neither. What they share is the client and
+/// the client's code - PROP-ACME-001 here, INV-ACME-001 when the work is
+/// billed - which is the link the operator actually reads.
+///
+/// `content` holds only the words. Every figure printed on the proposal (the
+/// price, each milestone's amount, the dates, the number) is computed from
+/// the columns and `input` at render time - see src/lib/proposals/view.ts -
+/// so an AI-written paragraph can never disagree with the price.
+model Proposal {
+  id       String @id @default(cuid())
+  userId   String
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orgId    String?
+  org      Organisation? @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  /// Who wrote it. Authorship only - never used for filtering.
+  createdById String?
+
+  /// Per-client counter, PROP-{code}-{sequence}. Assigned when written.
+  sequence  Int
+  refNumber String
+
+  title  String
+  status ProposalStatus @default(DRAFT)
+
+  currency    String
+  totalAmount Decimal? @db.Decimal(12, 2)
+
+  /// The brief as the operator filled it in (src/lib/proposals/input.ts).
+  input   Json
+  /// Claude's sections (src/lib/proposals/draft.ts), validated before saving.
+  content Json
+  /// The model that wrote the current content.
+  model   String?
+
+  issueDate       DateTime  @default(now())
+  validUntil      DateTime?
+  statusChangedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, refNumber])
+  @@unique([clientId, sequence])
+  @@index([userId, createdAt])
   @@index([orgId])
   @@schema("public")
 }

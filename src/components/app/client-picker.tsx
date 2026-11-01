@@ -47,11 +47,17 @@ export function ClientPicker({
   value,
   onChange,
   disabled,
+  allowNone = true,
+  allowCreate = true,
 }: {
   clients: PickableClient[]
   value: string
   onChange: (clientId: string) => void
   disabled?: boolean
+  /** Offer "No client selected". Off where a client is required. */
+  allowNone?: boolean
+  /** Offer "Add a new client". Off where the form has its own new-client fields. */
+  allowCreate?: boolean
 }) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
@@ -138,14 +144,16 @@ export function ClientPicker({
           </div>
 
           <div className="max-h-56 overflow-y-auto py-1">
-            <button
-              type="button"
-              onClick={() => choose(NO_CLIENT)}
-              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-muted"
-            >
-              <Check className={cn("size-4 shrink-0", value !== NO_CLIENT && "opacity-0")} />
-              <span className="text-muted-foreground">No client selected</span>
-            </button>
+            {allowNone && (
+              <button
+                type="button"
+                onClick={() => choose(NO_CLIENT)}
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-muted"
+              >
+                <Check className={cn("size-4 shrink-0", value !== NO_CLIENT && "opacity-0")} />
+                <span className="text-muted-foreground">No client selected</span>
+              </button>
+            )}
 
             {results.map((client) => (
               <button
@@ -169,20 +177,23 @@ export function ClientPicker({
             )}
           </div>
 
-          {/* Always available, so an unlisted client never means leaving the
-              page - which on a draft would discard unsaved line items. */}
-          <button
-            type="button"
-            onClick={() => {
-              setOpen(false)
-              setAddOpen(true)
-            }}
-            className="flex w-full items-center gap-2 border-t px-3 py-2 text-left text-sm font-medium hover:bg-muted"
-          >
-            <Plus className="size-4 shrink-0" aria-hidden="true" />
-            Add a new client
-            {query.trim() && <span className="truncate text-muted-foreground">&ldquo;{query.trim()}&rdquo;</span>}
-          </button>
+          {/* Available wherever a form has no new-client fields of its own,
+              so an unlisted client never means leaving the page - which on a
+              draft would discard unsaved line items. */}
+          {allowCreate && (
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false)
+                setAddOpen(true)
+              }}
+              className="flex w-full items-center gap-2 border-t px-3 py-2 text-left text-sm font-medium hover:bg-muted"
+            >
+              <Plus className="size-4 shrink-0" aria-hidden="true" />
+              Add a new client
+              {query.trim() && <span className="truncate text-muted-foreground">&ldquo;{query.trim()}&rdquo;</span>}
+            </button>
+          )}
         </div>
       )}
 
@@ -274,13 +285,12 @@ function AddClientDialog({
             />
           </div>
           <div className="space-y-1">
-            <Label htmlFor="picker-email">Email</Label>
+            <Label htmlFor="picker-email">Email (optional)</Label>
             <Input
               id="picker-email"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              required
             />
           </div>
 

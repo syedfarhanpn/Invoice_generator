@@ -234,3 +234,36 @@ export async function setTaskDone(taskId: string, done: boolean) {
   revalidatePath("/calendar")
   revalidatePath("/dashboard")
 }
+
+/**
+ * Removes a task for good.
+ *
+ * Gated on `tasks: write` like every other task change, and deliberately not
+ * on an admin role the way deleting a client is: a task is a note to self,
+ * not a record anyone else relies on, and nothing in the database refers to
+ * one. Making people ask an administrator to clear their own to-do list would
+ * just fill the board with tasks nobody means to do.
+ */
+export async function deleteTask(taskId: string) {
+  await assertPermission("tasks", "write")
+  const { workspaceId } = await getWorkspaceIdentity()
+
+  await prisma.$transaction(async (tx) => {
+    const task = await tx.task.findFirst({
+      where: { id: taskId, userId: workspaceId },
+      select: { stageId: true },
+    })
+    if (!task) throw new Error("That task no longer exists.")
+
+    // deleteMany so the workspace scope sits in the WHERE clause itself.
+    await tx.task.deleteMany({ where: { id: taskId, userId: workspaceId } })
+
+    // Close the gap it leaves, as a move does, so the next card added to the
+    // column lands at the end rather than in the hole.
+    if (task.stageId) await renumberColumn(tx, workspaceId, task.stageId)
+  })
+
+  revalidatePath("/tasks")
+  revalidatePath("/calendar")
+  revalidatePath("/dashboard")
+}

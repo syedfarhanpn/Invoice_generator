@@ -6,6 +6,7 @@ import { getCurrentUser } from "@/lib/current-user"
 import prisma from "@/lib/db"
 import {
   can,
+  isAdminRole,
   parseAccess,
   parseModule,
   resolveMatrix,
@@ -191,6 +192,37 @@ export async function assertPermission(module: Module, required: Access): Promis
 
   if (!viewer.context || !can(viewer.context, module, required)) {
     throw new Error("You do not have permission to do that.")
+  }
+
+  return viewer
+}
+
+/**
+ * Whether the viewer administers this workspace. Never throws.
+ *
+ * For rendering: a destructive control is not offered to someone who may not
+ * use it. The refusal itself is assertWorkspaceAdmin() below - this only
+ * decides what to draw.
+ */
+export async function isWorkspaceAdmin(): Promise<boolean> {
+  const viewer = await getViewer()
+  return isAdminRole(viewer.role, viewer.status)
+}
+
+/**
+ * The gate for an irreversible act, for Server Actions.
+ *
+ * Separate from assertPermission() rather than folded into it, because the
+ * two answer different questions: "may you work in Clients" and "may you
+ * destroy one". Callers pass through BOTH - the module grant can still be
+ * taken away from an administrator, and an override that says so should be
+ * honoured.
+ */
+export async function assertWorkspaceAdmin(): Promise<Viewer> {
+  const viewer = await getViewer()
+
+  if (!isAdminRole(viewer.role, viewer.status)) {
+    throw new Error("Only a workspace owner or admin can do that.")
   }
 
   return viewer

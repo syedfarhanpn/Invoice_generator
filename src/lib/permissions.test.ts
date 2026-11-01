@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  ADMIN_ROLES,
   can,
   describeMatrix,
+  isAdminRole,
   MODULES,
   parseAccess,
   parseModule,
@@ -241,5 +243,37 @@ describe("parsing untrusted values", () => {
     expect(parseAccess(true)).toBeNull()
     expect(parseModule("../../etc")).toBeNull()
     expect(parseModule("Settings")).toBeNull()
+  })
+})
+
+describe("isAdminRole", () => {
+  it("is true for the two administering roles", () => {
+    expect(isAdminRole("OWNER", "ACTIVE")).toBe(true)
+    expect(isAdminRole("ADMIN", "ACTIVE")).toBe(true)
+  })
+
+  it("is false for every role that merely has write access", () => {
+    // PROJECT_MANAGER, SALES_EXECUTIVE and ACCOUNTANT all hold clients
+    // write by default; none of them administers the workspace.
+    for (const role of ["PROJECT_MANAGER", "SALES_EXECUTIVE", "ACCOUNTANT", "DEVELOPER", "SUPPORT_EXECUTIVE", "CONTENT_CREATOR"] as const) {
+      expect(isAdminRole(role, "ACTIVE")).toBe(false)
+    }
+  })
+
+  it("is false for a suspended or still-invited administrator", () => {
+    // Suspending someone has to stop them doing this too.
+    expect(isAdminRole("ADMIN", "SUSPENDED")).toBe(false)
+    expect(isAdminRole("OWNER", "SUSPENDED")).toBe(false)
+    expect(isAdminRole("ADMIN", "INVITED")).toBe(false)
+  })
+
+  it("is false when there is no membership at all", () => {
+    expect(isAdminRole(null, null)).toBe(false)
+    expect(isAdminRole("ADMIN", null)).toBe(false)
+    expect(isAdminRole(undefined, undefined)).toBe(false)
+  })
+
+  it("agrees with ADMIN_ROLES", () => {
+    for (const role of ADMIN_ROLES) expect(isAdminRole(role, "ACTIVE")).toBe(true)
   })
 })

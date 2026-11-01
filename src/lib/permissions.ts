@@ -236,3 +236,35 @@ export function parseAccess(value: unknown): Access | null {
 export function parseModule(value: unknown): Module | null {
   return MODULES.includes(value as Module) ? (value as Module) : null
 }
+
+/**
+ * The roles that administer the workspace rather than work in it.
+ *
+ * Needed because the three access levels cannot express a fourth. "write"
+ * covers creating, editing and archiving, and that is the right grant for a
+ * project manager or a salesperson. Destroying a client outright - with their
+ * invoices, their payment receipts and their project history - is a different
+ * kind of act, and giving it to everyone who may edit a phone number would be
+ * a generous reading of "write".
+ *
+ * A deliberately short list, and deliberately not configurable: a permission
+ * matrix that can grant irreversible destruction is a matrix someone can
+ * mis-tick.
+ */
+export const ADMIN_ROLES: readonly MemberRole[] = ["OWNER", "ADMIN"]
+
+/**
+ * Whether this membership administers the workspace.
+ *
+ * Status is checked as well as role, for the same reason rule 2 above exists:
+ * suspending an administrator has to actually stop them, and this is not
+ * routed through resolveAccess() - which only answers module questions - so
+ * it would otherwise be the one power a suspension did not revoke.
+ */
+export function isAdminRole(
+  role: MemberRole | null | undefined,
+  status: MemberStatus | null | undefined
+): boolean {
+  if (!role || status !== "ACTIVE") return false
+  return ADMIN_ROLES.includes(role)
+}

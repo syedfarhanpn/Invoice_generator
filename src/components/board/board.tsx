@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useOptimistic, useRef, useState, useTransition } from "react"
 import {
   DndContext,
   DragOverlay,
@@ -23,6 +23,8 @@ import {
 import { CSS } from "@dnd-kit/utilities"
 import { CheckCircle2, Plus, X } from "lucide-react"
 
+import { leadingTotal, summarizeValues, type ValueSummary } from "@/lib/board-totals"
+import { formatAmount, formatCompactAmount } from "@/lib/format-compact"
 import { placeAt } from "@/lib/ordering"
 import { cn } from "@/lib/utils"
 
@@ -33,10 +35,12 @@ import { cn } from "@/lib/utils"
  * columns and cards and hands back moves, which is what lets one
  * implementation serve all three panels and one stage editor configure them.
  *
- * Moves apply locally first and reconcile against the server afterwards. A
- * drag that has to wait for a round trip before the card lands reads as a
- * broken drag, so the optimistic state is the real state until the server
- * disagrees - at which point it snaps back and says so.
+ * Moves and additions both apply locally first and reconcile against the
+ * server afterwards. A drag that has to wait for a round trip before the card
+ * lands reads as a broken drag, and a title typed into the composer that sits
+ * there doing nothing reads as a dropped keystroke - so the optimistic state
+ * is the real state until the server disagrees, at which point it snaps back
+ * and says so.
  */
 
 export type BoardTone = "success" | "warning" | "info" | "danger" | "special" | "muted"
@@ -52,6 +56,17 @@ export type BoardCard = {
   badges?: BoardBadge[]
   /** Draws the check the reference puts on closed cards. */
   done?: boolean
+  /**
+   * A card shown before the server has acknowledged it.
+   *
+   * It has no real id yet, so it cannot be dragged or opened - it sits in
+   * place, dimmed, until the write comes back and the server's own card
+   * takes over.
+   */
+  pending?: boolean
+  /** What the card is worth, when the board totals money. Absent = unpriced. */
+  value?: number | null
+  currency?: string | null
 }
 
 export type BoardColumn = {
@@ -88,9 +103,14 @@ function Badge({ badge }: { badge: BoardBadge }) {
 function CardBody({ card, dragging }: { card: BoardCard; dragging?: boolean }) {
   return (
     <div
+      aria-busy={card.pending || undefined}
       className={cn(
         "rounded-lg border bg-card px-3 py-2.5 text-left shadow-xs transition-colors",
-        dragging ? "opacity-90 shadow-lg" : "hover:border-muted-foreground/30"
+        dragging ? "opacity-90 shadow-lg" : "hover:border-muted-foreground/30",
+        // Dimmed rather than spinner-ed: the card is already readable and
+        // already in the right place, and the only thing still outstanding
+        // is the id. A spinner would imply more doubt than there is.
+        card.pending && "opacity-60"
       )}
     >
       <div className="flex items-start gap-2">
@@ -110,6 +130,19 @@ function CardBody({ card, dragging }: { card: BoardCard; dragging?: boolean }) {
           {card.title}
         </span>
       </div>
+
+      {/* Its own line rather than one more grey tag: on a board that totals
+          money, what each card is worth is the second thing you read. */}
+      {card.value != null && card.value > 0 && card.currency && (
+        <div
+          className={cn(
+            "mt-1 text-sm font-semibold tabular-nums",
+            card.done ? "text-tone-success" : "text-foreground"
+          )}
+        >
+          {formatAmount(card.value, card.currency)}
+        </div>
+      )}
 
       {card.subtitle && (
         <div className="mt-1 truncate text-xs text-muted-foreground">{card.subtitle}</div>
@@ -225,6 +258,52 @@ function AddCard({ onAdd, label }: { onAdd: (title: string) => void; label: stri
   )
 }
 
+/**
+ * A money total, abbreviated to fit a column header, in full on hover.
+ *
+ * Says how many cards actually carried a value whenever that is not all of
+ * them, so a total over a half-priced column is read as a floor.
+ */
+function TotalLine({
+  summary,
+  currency,
+  className,
+}: {
+  summary: ValueSummary
+  currency: string
+  className?: string
+}) {
+  const lead = leadingTotal(summary, currency)
+  const others = summary.totals.slice(1)
+  const partial = summary.valued < summary.count
+
+  const full =
+    (summary.totals.length > 0
+      ? summary.totals.map((t) => formatAmount(t.amount, t.currency)).join(" + ")
+      : formatAmount(0, lead.currency)) +
+    ` from ${summary.valued} of ${summary.count} with a value`
+
+  return (
+    <p className={cn("text-xs tabular-nums", className)} title={full}>
+      <span className="font-semibold text-foreground">
+        {formatCompactAmount(lead.amount, lead.currency)}
+      </span>
+      {others.map((t) => (
+        <span key={t.currency} className="font-semibold text-foreground">
+          {" + "}
+          {formatCompactAmount(t.amount, t.currency)}
+        </span>
+      ))}
+      {partial && (
+        <span className="text-muted-foreground">
+          {" "}
+          · {summary.valued} of {summary.count} have a value
+        </span>
+      )}
+    </p>
+  )
+}
+
 function Column({
   column,
   cards,
@@ -232,6 +311,7 @@ function Column({
   onRequestAdd,
   onOpen,
   addLabel,
+  totalsCurrency,
 }: {
   column: BoardColumn
   cards: BoardCard[]
@@ -241,9 +321,21 @@ function Column({
   onRequestAdd?: (stageId: string) => void
   onOpen?: (id: string) => void
   addLabel: string
+  /** Set when the board totals money; the currency to total in. */
+  totalsCurrency?: string
 }) {
   // Droppable in its own right, so an empty column is still a target.
   const { setNodeRef, isOver } = useDroppable({ id: `column:${column.id}` })
+
+  // A card still being written is drawn after the sortable list and outside
+  // it: dnd-kit would otherwise register a temporary id as a drop target, and
+  // dropping onto a card that is about to be replaced has nowhere to land.
+  const placed = cards.filter((c) => !c.pending)
+  const saving = cards.filter((c) => c.pending)
+
+  // Over the placed cards: one still saving has no value yet and would only
+  // drag the "n of m have a value" count down for a second.
+  const summary = totalsCurrency ? summarizeValues(placed, totalsCurrency) : null
 
   return (
     <section
@@ -259,15 +351,24 @@ function Column({
             {cards.length}
           </span>
         </div>
+        {summary && totalsCurrency && summary.count > 0 && (
+          <TotalLine summary={summary} currency={totalsCurrency} className="mt-0.5" />
+        )}
         {column.note && <p className="mt-0.5 text-xs text-muted-foreground">{column.note}</p>}
       </header>
 
       <div ref={setNodeRef} className="flex min-h-2 flex-1 flex-col gap-2 px-2 pb-1">
-        <SortableContext items={cards.map((c) => c.id)} strategy={verticalListSortingStrategy}>
-          {cards.map((card) => (
+        <SortableContext items={placed.map((c) => c.id)} strategy={verticalListSortingStrategy}>
+          {placed.map((card) => (
             <SortableCard key={card.id} card={card} onOpen={onOpen} />
           ))}
         </SortableContext>
+
+        {saving.map((card) => (
+          <div key={card.id} className="cursor-default">
+            <CardBody card={card} />
+          </div>
+        ))}
       </div>
 
       <div className="p-2 pt-1">
@@ -298,6 +399,7 @@ export function Board({
   onRequestCreate,
   onOpen,
   addLabel = "Add a card",
+  totals,
 }: {
   columns: BoardColumn[]
   cards: BoardCard[]
@@ -308,6 +410,12 @@ export function Board({
   onRequestCreate?: (stageId: string) => void
   onOpen?: (id: string) => void
   addLabel?: string
+  /**
+   * Turns on money totals: each column's in its header, and the open and won
+   * figures across the whole board above it. Off unless asked for - a task
+   * board has nothing to add up.
+   */
+  totals?: { currency: string }
 }) {
   const [items, setItems] = useState(cards)
   const [activeId, setActiveId] = useState<string | null>(null)
@@ -329,6 +437,25 @@ export function Board({
     setItems(cards)
   }
 
+  /**
+   * Cards typed into a composer but not yet acknowledged.
+   *
+   * useOptimistic rather than a second piece of state, because React already
+   * knows when to let go of it: the card survives exactly as long as the
+   * transition that created it, which covers the write AND the re-render that
+   * arrives with the server's own copy. Hand-rolled bookkeeping would have to
+   * guess when to drop it, and guessing early flickers while guessing late
+   * shows the card twice.
+   */
+  const [optimisticItems, addOptimisticCard] = useOptimistic(
+    items,
+    (current: BoardCard[], added: BoardCard) => [...current, added]
+  )
+  const [, startTransition] = useTransition()
+  // Only has to be unique among cards on screen, and only until the real id
+  // lands. A counter says that more plainly than a uuid would.
+  const pendingSeq = useRef(0)
+
   const sensors = useSensors(
     // A small distance so a click to open a card is not read as a drag.
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -338,9 +465,9 @@ export function Board({
   const byColumn = useMemo(() => {
     const map = new Map<string, BoardCard[]>()
     for (const column of columns) map.set(column.id, [])
-    for (const card of items) map.get(card.stageId)?.push(card)
+    for (const card of optimisticItems) map.get(card.stageId)?.push(card)
     return map
-  }, [columns, items])
+  }, [columns, optimisticItems])
 
   const activeCard = activeId ? items.find((c) => c.id === activeId) ?? null : null
 
@@ -389,8 +516,10 @@ export function Board({
     }
 
     // Where in the column it landed: above the card it was dropped on, or at
-    // the end when dropped on the column itself.
-    const target = byColumn.get(toStageId) ?? []
+    // the end when dropped on the column itself. Counted over the real cards
+    // only - a card still saving holds no position the server knows about,
+    // and counting it would file this one index too far down.
+    const target = (byColumn.get(toStageId) ?? []).filter((c) => !c.pending)
     const overId = String(over.id)
     const overIndex = target.findIndex((c) => c.id === overId)
     const toIndex = overIndex >= 0 ? overIndex : target.length
@@ -406,16 +535,49 @@ export function Board({
     }
   }
 
-  const handleCreate = async (stageId: string, title: string) => {
-    // No optimistic card: it has no id until the server gives it one, and a
-    // card that cannot be dragged for a moment is worse than one that appears
-    // a moment later.
-    try {
-      await onCreate(stageId, title)
-    } catch {
-      setError("That card could not be added.")
-    }
+  const handleCreate = (stageId: string, title: string) => {
+    setError(null)
+    // Inside a transition because that is what gives the optimistic card its
+    // lifetime: React keeps it until everything awaited here has finished,
+    // including the re-render the revalidation triggers.
+    startTransition(async () => {
+      addOptimisticCard({
+        id: `pending:${pendingSeq.current++}`,
+        stageId,
+        title,
+        pending: true,
+      })
+      try {
+        await onCreate(stageId, title)
+      } catch {
+        // The optimistic card is dropped when the transition ends, so a
+        // failure takes the card away with it and leaves only this.
+        setError("That card could not be added.")
+      }
+    })
   }
+
+  // The board-wide figures, from the same optimistic list the columns draw,
+  // so a drag moves the money between the totals the moment the card lands.
+  // Lost is left out of the headline: money a prospect walked away with is
+  // not pipeline, and adding it would flatter the board. Its own column
+  // header still shows it.
+  const totalsCurrency = totals?.currency
+  const boardTotals = useMemo(() => {
+    if (!totalsCurrency) return null
+    const typeOf = new Map(columns.map((c) => [c.id, c.type]))
+    const placed = optimisticItems.filter((c) => !c.pending)
+    return {
+      open: summarizeValues(
+        placed.filter((c) => typeOf.get(c.stageId) === "OPEN"),
+        totalsCurrency
+      ),
+      won: summarizeValues(
+        placed.filter((c) => typeOf.get(c.stageId) === "WON"),
+        totalsCurrency
+      ),
+    }
+  }, [totalsCurrency, columns, optimisticItems])
 
   return (
     <div className="flex flex-col">
@@ -425,6 +587,19 @@ export function Board({
           className="mx-4 mt-3 rounded-lg bg-tone-danger-bg px-3 py-2 text-sm text-tone-danger"
         >
           {error}
+        </div>
+      )}
+
+      {boardTotals && totalsCurrency && (
+        <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1 border-b px-4 py-2.5">
+          <div className="flex items-baseline gap-2">
+            <span className="text-sm text-muted-foreground">Open pipeline</span>
+            <TotalLine summary={boardTotals.open} currency={totalsCurrency} className="text-sm" />
+          </div>
+          <div className="flex items-baseline gap-2">
+            <span className="text-sm text-muted-foreground">Won</span>
+            <TotalLine summary={boardTotals.won} currency={totalsCurrency} className="text-sm" />
+          </div>
         </div>
       )}
 
@@ -451,6 +626,7 @@ export function Board({
               onRequestAdd={onRequestCreate}
               onOpen={onOpen}
               addLabel={addLabel}
+              totalsCurrency={totalsCurrency}
             />
           ))}
 

@@ -1,5 +1,5 @@
 
-import { requirePermission } from "@/lib/access"
+import { isWorkspaceAdmin, requirePermission } from "@/lib/access"
 import { AddLead } from "@/components/workspace/add-lead"
 import { ImportLeads } from "@/components/workspace/import-leads"
 import { StatCard, StatRow } from "@/components/app/stat-card"
@@ -31,6 +31,8 @@ export default async function CrmPage() {
 
   const identity = await getWorkspaceIdentity()
   const userId = identity.userId
+  // Whether to OFFER bulk delete. The action refuses non-admins on its own.
+  const canDelete = await isWorkspaceAdmin()
 
   const [board, stats, members, deals, clients] = await Promise.all([
     ensureBoard(userId, "LEADS"),
@@ -247,6 +249,8 @@ export default async function CrmPage() {
         details={details}
         clients={clientOptions}
         members={members}
+        canDelete={canDelete}
+        currency={currency}
       />
     </div>
   )

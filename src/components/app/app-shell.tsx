@@ -17,6 +17,7 @@ import {
   Menu,
   ChartColumn,
   Receipt,
+  ScrollText,
   Settings,
   ShieldCheck,
   UsersRound,
@@ -93,6 +94,8 @@ const NAV: NavItem[] = [
   { href: "/crm", match: "/crm", label: "Sales & Leads", icon: Briefcase, module: "sales" },
   { href: "/dashboard/clients", match: "/dashboard/clients", label: "Clients", icon: UsersRound, module: "clients" },
   { href: "/projects", match: "/projects", label: "Projects", icon: FolderKanban, module: "projects" },
+  // Before Documents: a proposal is what an invoice follows.
+  { href: "/dashboard/proposals", match: "/dashboard/proposals", label: "Proposals", icon: ScrollText, module: "documents" },
   { href: "/dashboard/documents", match: "/dashboard/documents", label: "Documents", icon: FileText, module: "documents" },
   { href: "/tasks", match: "/tasks", label: "Tasks", icon: ListChecks, module: "tasks" },
   { href: "/calendar", match: "/calendar", label: "Calendar", icon: CalendarDays, module: "calendar" },
@@ -456,7 +459,11 @@ export function AppShell({
           </div>
         </header>
 
-        <main className="min-w-0 flex-1 overflow-y-auto">{children}</main>
+        {/* Relative so an absolutely positioned element inside a page (a
+            screen-reader label, say) is clipped by this scroller. Without it,
+            one placed past the right edge widens the document and the whole
+            app, sidebar included, scrolls sideways. */}
+        <main className="relative min-w-0 flex-1 overflow-y-auto">{children}</main>
       </div>
     </div>
   )

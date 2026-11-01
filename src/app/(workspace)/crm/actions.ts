@@ -2,15 +2,22 @@
 
 import { randomUUID } from "node:crypto"
 import { revalidatePath } from "next/cache"
+import { after } from "next/server"
 
 import { assertStageInBoard, ensureBoard } from "@/lib/boards"
 import { compactPositions, positionsAfterMove } from "@/lib/ordering"
 import { renumber } from "@/lib/renumber"
-import { assertPermission } from "@/lib/access"
+import { z } from "zod"
+
+import type { BulkResult } from "@/app/dashboard/bulk-actions"
+import { assertPermission, assertWorkspaceAdmin } from "@/lib/access"
+import { canDeleteDeal } from "@/lib/bulk-actions"
 import { allocateClientNumber } from "@/lib/allocate-ref"
 import { suggestClientCode } from "@/lib/client-code"
 import { currentOrgId, resolveAssignee } from "@/lib/members"
 import prisma from "@/lib/db"
+import { LEAD_EVENT_SOURCE, sendLeadStageEvents } from "@/lib/meta/capi-client"
+import { isMetaLead } from "@/lib/meta/capi-event"
 import { getWorkspaceIdentity } from "@/lib/workspace-identity"
 
 /**
@@ -57,13 +64,25 @@ export async function moveDeal(
   toIndex: number
 ): Promise<MoveDealResult> {
   await assertPermission("sales", "write")
-  const { workspaceId } = await getWorkspaceIdentity()
+  const { workspaceId, orgId } = await getWorkspaceIdentity()
   await assertStageInBoard(workspaceId, "LEADS", toStageId)
 
   const [deal, stage] = await Promise.all([
     prisma.deal.findFirst({
       where: { id: dealId, userId: workspaceId, archivedAt: null },
-      select: { id: true, title: true, stageId: true },
+      select: {
+        id: true,
+        title: true,
+        stageId: true,
+        // For the Conversions API report below, read in the same query so a
+        // workspace without Meta connected pays nothing extra for it.
+        source: true,
+        createdAt: true,
+        value: true,
+        currency: true,
+        primaryContact: { select: { email: true, phone: true, firstName: true, lastName: true } },
+        client: { select: { email: true, phone: true, country: true } },
+      },
     }),
     prisma.stage.findUnique({
       where: { id: toStageId },
@@ -111,6 +130,42 @@ export async function moveDeal(
 
   revalidatePath("/crm")
   revalidatePath("/dashboard")
+
+  // Tell Meta the lead moved, so it can learn which of its leads go anywhere.
+  //
+  // Scheduled here, after the transaction, and never before it: after() runs
+  // even when the response fails, so registering it earlier would report a
+  // move that rolled back. And in after() rather than awaited, so a slow or
+  // unreachable Graph API can never hold up a drag - the board answers first,
+  // Meta hears about it a moment later, and the outcome lands in SyncLog.
+  //
+  // Only leads Meta produced, only real column changes, and never into Lost:
+  // Meta's lead stages are a funnel of steps forward, and an event named after
+  // a stage nobody registered there is flagged rather than learned from.
+  if (fromStageId !== toStageId && stage && !lost && isMetaLead(deal.source)) {
+    const contact = deal.primaryContact
+    after(() =>
+      sendLeadStageEvents(workspaceId, orgId, [
+        {
+          dealId: deal.id,
+          stageName: stage.name,
+          occurredAt: now,
+          leadCreatedAt: deal.createdAt,
+          identity: {
+            email: contact?.email || deal.client?.email,
+            phone: contact?.phone || deal.client?.phone,
+            firstName: contact?.firstName,
+            lastName: contact?.lastName,
+            country: deal.client?.country,
+          },
+          leadEventSource: LEAD_EVENT_SOURCE,
+          // Value only once it is won - an open lead's value is a hope.
+          value: won && deal.value != null ? Number(deal.value) : null,
+          currency: deal.currency,
+        },
+      ])
+    )
+  }
 
   // Only offer once: an existing project means the prompt was already taken.
   const existingProject = won
@@ -587,4 +642,146 @@ function parseDay(value: string | null | undefined): Date | null {
   if (!value) return null
   const parsed = new Date(`${value.trim()}T09:00:00+05:30`)
   return Number.isNaN(parsed.getTime()) ? null : parsed
+}
+
+// ---------------------------------------------------------------------------
+// Bulk clean-up from the Inbox list.
+//
+// Both re-read every selected row rather than trusting the ids: a Server
+// Action is a public endpoint, and the checkbox state is a hint, never a
+// permission. Larger than the other bulk limits because junk arrives in
+// volume - a bad ad set can produce a few hundred leads in a weekend.
+// ---------------------------------------------------------------------------
+
+const dealIdsSchema = z.array(z.string().min(1).max(64)).min(1).max(500)
+
+function parseDealIds(ids: string[]): string[] {
+  const parsed = dealIdsSchema.safeParse(ids)
+  if (parsed.success) return [...new Set(parsed.data)]
+  throw new Error(
+    ids.length > 500 ? "Select at most 500 leads at a time." : "Nothing valid was selected."
+  )
+}
+
+/**
+ * Deletes selected leads for good. Owners and admins only.
+ *
+ * Won leads are skipped - see canDeleteDeal(). Everything else goes with the
+ * lead, deleted explicitly in one transaction rather than left to the
+ * database's ON DELETE rules, so what this says is what happens:
+ *
+ *   - its activity history and follow-up tasks
+ *   - its contact, when that contact exists only for this lead: not attached
+ *     to a client, and not the contact on any lead that survives. A junk
+ *     lead's name, phone and email are the junk; leaving them behind
+ *     invisibly would keep the personal data while removing the only screen
+ *     that showed it.
+ *
+ * A project started from one of these leads survives, with its link to the
+ * lead cleared.
+ */
+export async function bulkDeleteDeals(ids: string[]): Promise<BulkResult> {
+  await assertPermission("sales", "write")
+  await assertWorkspaceAdmin()
+  const { workspaceId } = await getWorkspaceIdentity()
+  const requested = parseDealIds(ids)
+
+  const rows = await prisma.deal.findMany({
+    where: { id: { in: requested }, userId: workspaceId },
+    select: {
+      id: true,
+      stageId: true,
+      primaryContactId: true,
+      stage: { select: { type: true } },
+    },
+  })
+
+  const deletable = rows.filter((r) => canDeleteDeal(r.stage.type === "WON"))
+  if (deletable.length === 0) return { changed: 0, skipped: requested.length }
+
+  const dealIds = deletable.map((r) => r.id)
+  const contactIds = [
+    ...new Set(deletable.map((r) => r.primaryContactId).filter((id): id is string => !!id)),
+  ]
+  const stageIds = [...new Set(deletable.map((r) => r.stageId))]
+
+  const changed = await prisma.$transaction(
+    async (tx) => {
+      await tx.activity.deleteMany({ where: { userId: workspaceId, dealId: { in: dealIds } } })
+      await tx.task.deleteMany({ where: { userId: workspaceId, dealId: { in: dealIds } } })
+      await tx.project.updateMany({
+        where: { userId: workspaceId, sourceDealId: { in: dealIds } },
+        data: { sourceDealId: null },
+      })
+
+      // The stage type is asserted again in the DELETE itself, so a lead
+      // dragged into Won between the read above and this line is left alone.
+      const { count } = await tx.deal.deleteMany({
+        where: { id: { in: dealIds }, userId: workspaceId, stage: { type: { not: "WON" } } },
+      })
+
+      if (contactIds.length > 0) {
+        // Checked after the deals are gone, so "no surviving lead uses it"
+        // reads the real state rather than the state before the delete.
+        await tx.contact.deleteMany({
+          where: {
+            id: { in: contactIds },
+            userId: workspaceId,
+            clientId: null,
+            deals: { none: {} },
+            tickets: { none: {} },
+          },
+        })
+      }
+
+      // Close the gaps in every column a deleted card sat in.
+      for (const stageId of stageIds) await renumberColumn(tx, workspaceId, stageId)
+
+      return count
+    },
+    // Hundreds of rows across several tables; see the note in lib/renumber.ts
+    // on what the default five seconds did to the board.
+    { timeout: 30_000 }
+  )
+
+  revalidatePath("/crm")
+  revalidatePath("/dashboard")
+  revalidatePath("/tasks")
+  revalidatePath("/calendar")
+  return { changed, skipped: requested.length - changed }
+}
+
+/**
+ * Archives selected leads: out of every list and board, nothing destroyed.
+ * Open to anyone who may work the leads, unlike deleting.
+ */
+export async function bulkArchiveDeals(ids: string[]): Promise<BulkResult> {
+  await assertPermission("sales", "write")
+  const { workspaceId } = await getWorkspaceIdentity()
+  const requested = parseDealIds(ids)
+
+  const rows = await prisma.deal.findMany({
+    where: { id: { in: requested }, userId: workspaceId, archivedAt: null },
+    select: { id: true, stageId: true },
+  })
+  if (rows.length === 0) return { changed: 0, skipped: requested.length }
+
+  const changed = await prisma.$transaction(
+    async (tx) => {
+      const now = new Date()
+      const { count } = await tx.deal.updateMany({
+        where: { id: { in: rows.map((r) => r.id) }, userId: workspaceId, archivedAt: null },
+        data: { archivedAt: now, updatedAt: now },
+      })
+      for (const stageId of new Set(rows.map((r) => r.stageId))) {
+        await renumberColumn(tx, workspaceId, stageId)
+      }
+      return count
+    },
+    { timeout: 30_000 }
+  )
+
+  revalidatePath("/crm")
+  revalidatePath("/dashboard")
+  return { changed, skipped: requested.length - changed }
 }

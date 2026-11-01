@@ -3,11 +3,14 @@ import { describe, expect, it } from "vitest"
 
 import {
   canDeleteClient,
+  canDeleteDeal,
   canDeleteDocument,
   canVoidDocument,
   partitionClients,
+  partitionDeals,
   partitionDocuments,
   whyClientBlocked,
+  whyDealBlocked,
   whyDocumentBlocked,
 } from "./bulk-actions"
 
@@ -110,5 +113,35 @@ describe("explanations", () => {
   it("says how many documents block a client, with correct pluralisation", () => {
     expect(whyClientBlocked(1)).toContain("1 document -")
     expect(whyClientBlocked(4)).toContain("4 documents")
+  })
+})
+
+describe("canDeleteDeal", () => {
+  it("lets an open or lost lead go", () => {
+    expect(canDeleteDeal(false)).toBe(true)
+  })
+
+  it("keeps a won lead, which is sales history rather than junk", () => {
+    expect(canDeleteDeal(true)).toBe(false)
+    expect(whyDealBlocked(true)).toContain("won")
+    expect(whyDealBlocked(false)).toBeNull()
+  })
+})
+
+describe("partitionDeals", () => {
+  it("splits a mixed selection without losing a row", () => {
+    const rows = [
+      { id: "spam", won: false },
+      { id: "closed", won: true },
+      { id: "dup", won: false },
+    ]
+    const { eligible, blocked } = partitionDeals(rows)
+    expect(eligible.map((r) => r.id)).toEqual(["spam", "dup"])
+    expect(blocked.map((r) => r.id)).toEqual(["closed"])
+    expect(eligible.length + blocked.length).toBe(rows.length)
+  })
+
+  it("handles an empty selection", () => {
+    expect(partitionDeals([])).toEqual({ eligible: [], blocked: [] })
   })
 })
