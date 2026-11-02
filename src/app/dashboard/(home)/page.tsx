@@ -1,4 +1,5 @@
 import Link from "next/link"
+import { redirect } from "next/navigation"
 import {
   Activity,
   ArrowRight,
@@ -14,7 +15,7 @@ import {
 import { DonutChart } from "@/components/app/donut-chart"
 import { RevenueExpenseChart } from "@/components/app/revenue-expense-chart"
 import { StatCard, StatRow } from "@/components/app/stat-card"
-import { viewerMatrix } from "@/lib/access"
+import { getViewer, noWorkspaceHome, viewerMatrix } from "@/lib/access"
 import { getDashboardData } from "@/lib/dashboard"
 import { getDashboardPanels } from "@/lib/dashboard-panels"
 
@@ -92,6 +93,12 @@ const ACTIVITY_DOT: Record<string, string> = {
 }
 
 export default async function OverviewPage() {
+  // Every module page sends someone with no company away; the overview did
+  // not, and showed an account's own empty figures instead. For the platform
+  // admin, who belongs to no company, that meant landing on a dashboard of
+  // zeros rather than on the companies.
+  if (!(await getViewer()).context) redirect(await noWorkspaceHome())
+
   const identity = await getWorkspaceIdentity()
   const now = new Date()
 

@@ -277,3 +277,31 @@ describe("isAdminRole", () => {
     for (const role of ADMIN_ROLES) expect(isAdminRole(role, "ACTIVE")).toBe(true)
   })
 })
+
+describe("a read-only context", () => {
+  it("can see every module an administrator can, and change none of them", () => {
+    // How the platform admin views a company.
+    const viewing = context({ role: "ADMIN", readOnly: true })
+    for (const m of MODULES) {
+      expect(resolveAccess(viewing, m)).toBe("read")
+      expect(can(viewing, m, "read")).toBe(true)
+      expect(can(viewing, m, "write")).toBe(false)
+    }
+  })
+
+  it("caps even the owner, whose rule otherwise always grants write", () => {
+    const owner = context({ role: "OWNER", readOnly: true })
+    for (const m of MODULES) expect(resolveAccess(owner, m)).toBe("read")
+  })
+
+  it("never raises access: what a role cannot see stays hidden", () => {
+    const developer = context({ role: "DEVELOPER", readOnly: true })
+    expect(resolveAccess(developer, "projects")).toBe("read")
+    expect(resolveAccess(developer, "expenses")).toBe("none")
+  })
+
+  it("survives a member override that grants write", () => {
+    const overridden = context({ role: "DEVELOPER", readOnly: true, memberOverrides: { expenses: "write" } })
+    expect(resolveAccess(overridden, "expenses")).toBe("read")
+  })
+})

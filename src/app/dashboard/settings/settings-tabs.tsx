@@ -27,6 +27,11 @@ const GROUPS: { label: string; items: { href: string; match: string; label: stri
         match: "/dashboard/settings/business",
         label: "Profile & documents",
       },
+      {
+        href: "/dashboard/settings/integrations",
+        match: "/dashboard/settings/integrations",
+        label: "Integrations",
+      },
     ],
   },
   {

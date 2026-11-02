@@ -34,6 +34,16 @@ export const ROLE_LABEL: Record<MemberRole, string> = {
   CONTENT_CREATOR: "Content creator",
 }
 
+/**
+ * What the account menu calls someone. The platform admin first, because
+ * that is what they are wherever they are - including while viewing a
+ * company, where they hold no role at all.
+ */
+export function accountRoleLabel(identity: { isSuperAdmin: boolean; memberRole: MemberRole | null }): string {
+  if (identity.isSuperAdmin) return "Platform admin"
+  return identity.memberRole ? ROLE_LABEL[identity.memberRole] : "Member"
+}
+
 export async function getWorkspaceMembers(orgId: string | null): Promise<WorkspaceMember[]> {
   // No workspace means nobody to assign to - an empty list rather than a throw,
   // so the control renders as "Unassigned" and nothing breaks.

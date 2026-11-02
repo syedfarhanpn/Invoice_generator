@@ -2,28 +2,34 @@
 
 import { z } from "zod"
 import { revalidatePath } from "next/cache"
-import type { Prisma, Role } from "@prisma/client"
+import { cookies } from "next/headers"
+import { redirect } from "next/navigation"
+import { Prisma, type Role } from "@prisma/client"
 
 import prisma from "@/lib/db"
 import { requireSuperAdmin } from "@/lib/current-user"
 import { canChangeRole, canRestore, canSuspend, type AdminTarget } from "@/lib/admin-guards"
+import { firstIssue, newCompanySchema, ownershipRefusal, slugify, uniqueSlug } from "@/lib/companies"
+import { sendWorkspaceInvite, type InviteOutcome } from "@/lib/invites"
+import { VIEWING_COOKIE, VIEWING_COOKIE_OPTIONS } from "@/lib/viewing"
 
 // ---------------------------------------------------------------------------
-// Account administration.
+// Platform administration: companies and the accounts in them.
 //
 // Every action here: requires SUPER_ADMIN, re-reads the target inside a
-// transaction (never trusts what the page rendered), runs the pure guard from
-// admin-guards.ts, writes, and records an audit row in the SAME transaction -
-// so an account change can never exist without the record of who made it.
+// transaction (never trusts what the page rendered), runs the pure guard,
+// writes, and records an audit row in the SAME transaction - so a change can
+// never exist without the record of who made it.
 //
-// Note what is deliberately absent: nothing here reads a tenant's clients,
-// documents or invoice contents. A super admin administers accounts; they are
-// not given a back door into customer data.
+// The platform admin sees inside a company only by viewing it, and viewing
+// is read-only (src/lib/access.ts, src/lib/db.ts). Opening and closing a view
+// are recorded here like any other act, in the trail only the platform admin
+// can read - never in the company's own.
 // ---------------------------------------------------------------------------
 
 const userIdSchema = z.string().min(1).max(64)
+const orgIdSchema = z.string().min(1).max(64)
 const roleSchema = z.enum(["USER", "SUPER_ADMIN"])
-const emailSchema = z.string().trim().toLowerCase().email().max(320)
 
 function bootstrapAdminEmail(): string | null {
   return process.env.SUPER_ADMIN_EMAIL?.toLowerCase().trim() || null
@@ -58,25 +64,209 @@ function revalidateAdmin() {
 }
 
 // ---------------------------------------------------------------------------
-// Provisioning - fail-closed access is granted here, one account at a time.
+// Adding a company - the only way a new company comes into being.
+//
+// Replaces the old "Grant access" form. On a platform of companies, an
+// account with no company opens onto "you are not in a workspace" and
+// nothing else; what a new customer needs is a company with an owner, who
+// then brings in their own team from Team Management.
 // ---------------------------------------------------------------------------
-export async function provisionUser(rawEmail: string) {
+
+/** A refusal written for the operator, as opposed to a failure. */
+class CompanyRefusal extends Error {}
+
+export type CreateCompanyResult =
+  | { ok: true; company: string; ownerEmail: string; invite: InviteOutcome }
+  | { ok: false; error: string }
+
+export async function createCompany(raw: unknown): Promise<CreateCompanyResult> {
   const actor = await requireSuperAdmin()
-  const parsed = emailSchema.safeParse(rawEmail)
-  if (!parsed.success) throw new Error("Enter a valid email address.")
-  const email = parsed.data
+  const parsed = newCompanySchema.safeParse(raw)
+  if (!parsed.success) return { ok: false, error: firstIssue(parsed.error) }
+  const input = parsed.data
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      const existing = await tx.user.findUnique({
+        where: { email: input.ownerEmail },
+        select: {
+          id: true,
+          name: true,
+          role: true,
+          status: true,
+          memberships: { select: { org: { select: { name: true } } } },
+        },
+      })
+
+      const refusal = ownershipRefusal(
+        existing && {
+          isPlatformAdmin: existing.role === "SUPER_ADMIN",
+          isSuspended: existing.status === "SUSPENDED",
+          companies: existing.memberships.map((m) => m.org.name),
+        }
+      )
+      if (refusal) throw new CompanyRefusal(refusal)
+
+      const base = slugify(input.companyName)
+      const taken = await tx.organisation.findMany({
+        where: { slug: { startsWith: base } },
+        select: { slug: true },
+      })
+      const org = await tx.organisation.create({
+        data: { name: input.companyName, slug: uniqueSlug(base, new Set(taken.map((t) => t.slug))) },
+        select: { id: true },
+      })
+
+      // The User row is the invitation, as it is for a team member: signing
+      // in with this address is what connects them to the company.
+      const owner =
+        existing ??
+        (await tx.user.create({
+          data: { email: input.ownerEmail, name: input.ownerName, role: "USER", status: "ACTIVE" },
+          select: { id: true, name: true },
+        }))
+      if (!owner.name) {
+        await tx.user.update({ where: { id: owner.id }, data: { name: input.ownerName } })
+      }
+
+      await tx.membership.create({
+        data: { orgId: org.id, userId: owner.id, role: "OWNER", status: "INVITED", invitedAt: new Date() },
+      })
+
+      // The company's name on their rail and their documents from the first
+      // sign-in, rather than the product's. An account from before companies
+      // may already hold a profile; that one is kept and only attached.
+      await tx.businessProfile.upsert({
+        where: { userId: owner.id },
+        update: { orgId: org.id },
+        create: {
+          userId: owner.id,
+          orgId: org.id,
+          businessName: input.companyName,
+          ownerName: input.ownerName,
+          email: input.ownerEmail,
+          currency: input.currency,
+        },
+      })
+
+      await tx.adminAuditLog.create({
+        data: {
+          actorId: actor.id,
+          targetUserId: owner.id,
+          action: "company.created",
+          meta: { company: input.companyName, email: input.ownerEmail, orgId: org.id },
+        },
+      })
+    })
+  } catch (error) {
+    if (error instanceof CompanyRefusal) return { ok: false, error: error.message }
+    // The unique email or slug, taken by a request that landed in between.
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      return { ok: false, error: "That owner or company was added a moment ago. Refresh the list and check." }
+    }
+    throw error
+  }
+
+  revalidateAdmin()
+
+  // Outside the transaction, as for a team member: the company exists now,
+  // and a mail provider timing out must not undo it. The result carries the
+  // link so it can be sent by hand if the email did not go.
+  const invite = await sendWorkspaceInvite({
+    email: input.ownerEmail,
+    role: "OWNER",
+    title: null,
+    note: null,
+    brandName: input.companyName,
+    inviterName: null,
+    replyTo: actor.email,
+  })
+
+  return { ok: true, company: input.companyName, ownerEmail: input.ownerEmail, invite }
+}
+
+/**
+ * Takes a person out of their company, keeping their account.
+ *
+ * What Team Management cannot do: it suspends, and a suspended membership
+ * still holds a place - which is exactly wrong for the platform admin, who
+ * should belong to no company at all. Never the owner: a company's records
+ * are filed under them, so it cannot be left without one. Their assignments
+ * are released rather than deleted (the foreign keys are SET NULL), so the
+ * work they were on stays and simply becomes unassigned.
+ */
+export async function removeFromCompany(rawUserId: string) {
+  const actor = await requireSuperAdmin()
+  const userId = userIdSchema.parse(rawUserId)
 
   await prisma.$transaction(async (tx) => {
-    const existing = await tx.user.findUnique({ where: { email }, select: { id: true } })
-    if (existing) throw new Error("An account already exists for that email address.")
+    const membership = await tx.membership.findFirst({
+      where: { userId },
+      orderBy: { createdAt: "asc" },
+      select: { id: true, role: true, org: { select: { name: true } }, user: { select: { email: true } } },
+    })
+    if (!membership) throw new Error("That account is not in a company.")
+    if (membership.role === "OWNER") {
+      throw new Error(`The owner cannot be removed from ${membership.org.name}. A company needs its owner.`)
+    }
 
-    const created = await tx.user.create({ data: { email, role: "USER", status: "ACTIVE" } })
+    await tx.membership.delete({ where: { id: membership.id } })
     await tx.adminAuditLog.create({
-      data: { actorId: actor.id, targetUserId: created.id, action: "user.provisioned", meta: { email } },
+      data: {
+        actorId: actor.id,
+        targetUserId: userId,
+        action: "user.removed_from_company",
+        meta: { email: membership.user.email, company: membership.org.name },
+      },
     })
   })
 
   revalidateAdmin()
+}
+
+// ---------------------------------------------------------------------------
+// Viewing a company, read-only.
+// ---------------------------------------------------------------------------
+
+/**
+ * Opens a company for the platform admin to look through.
+ *
+ * Revalidates the whole tree on the way in and out: the browser keeps pages
+ * it has already shown (see staleTimes in next.config.ts), and without this
+ * it could show one company's screen while the banner names another.
+ */
+export async function viewCompany(rawOrgId: string) {
+  const actor = await requireSuperAdmin()
+  const orgId = orgIdSchema.parse(rawOrgId)
+
+  const org = await prisma.organisation.findUnique({ where: { id: orgId }, select: { id: true, name: true } })
+  if (!org) throw new Error("That company no longer exists.")
+
+  await prisma.adminAuditLog.create({
+    data: { actorId: actor.id, action: "company.viewed", meta: { company: org.name, orgId: org.id } },
+  })
+
+  ;(await cookies()).set(VIEWING_COOKIE, org.id, VIEWING_COOKIE_OPTIONS)
+  revalidatePath("/", "layout")
+  redirect("/dashboard")
+}
+
+/** Closes the view and returns to the Accounts console. */
+export async function stopViewingCompany() {
+  const actor = await requireSuperAdmin()
+  const cookieStore = await cookies()
+  const orgId = cookieStore.get(VIEWING_COOKIE)?.value
+
+  if (orgId) {
+    const org = await prisma.organisation.findUnique({ where: { id: orgId }, select: { name: true } })
+    await prisma.adminAuditLog.create({
+      data: { actorId: actor.id, action: "company.view_ended", meta: { company: org?.name ?? null, orgId } },
+    })
+  }
+
+  cookieStore.delete(VIEWING_COOKIE)
+  revalidatePath("/", "layout")
+  redirect("/dashboard/admin")
 }
 
 // ---------------------------------------------------------------------------

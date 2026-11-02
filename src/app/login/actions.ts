@@ -6,6 +6,7 @@ import { cookies } from 'next/headers'
 
 import prisma from '@/lib/db'
 import { emailSchema } from '@/lib/password'
+import { VIEWING_COOKIE } from '@/lib/viewing'
 
 // There is deliberately no signup action here. Accounts are provisioned by a
 // super admin (see /dashboard/admin), and the corresponding Supabase user is
@@ -55,6 +56,10 @@ export async function login(formData: FormData) {
   if (error) {
     return redirect('/login?error=Could not authenticate user')
   }
+
+  // A new session starts outside any company. A viewing cookie left in this
+  // browser by the platform admin must not follow whoever signs in next.
+  cookieStore.delete(VIEWING_COOKIE)
 
   // Whether this account is provisioned, suspended, or a super admin is
   // decided in src/lib/current-user.ts on the first authenticated render. It
@@ -107,6 +112,7 @@ export async function logout() {
   const cookieStore = await cookies()
   const supabase = getSupabaseServerClient(cookieStore)
   await supabase.auth.signOut()
+  cookieStore.delete(VIEWING_COOKIE)
   redirect('/login')
 }
 

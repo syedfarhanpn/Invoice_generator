@@ -1,4 +1,5 @@
 import { cache } from "react"
+import type { MemberRole } from "@prisma/client"
 
 import { getViewer } from "@/lib/access"
 import { getCurrentUser, isSuperAdmin } from "@/lib/current-user"
@@ -59,6 +60,13 @@ export type WorkspaceIdentity = {
    */
   logoUrl: string | null
   isSuperAdmin: boolean
+  /** Their role in this company. Null for the platform admin, who has none. */
+  memberRole: MemberRole | null
+  /**
+   * The company's name while the platform admin is viewing it read-only, for
+   * the banner that keeps them aware of it. Null the rest of the time.
+   */
+  viewingCompany: string | null
 }
 
 /** Shown before a business profile exists, rather than an empty rail. */
@@ -123,5 +131,7 @@ export const getWorkspaceIdentity = cache(async (): Promise<WorkspaceIdentity> =
     brandName: profile?.businessName?.trim() || FALLBACK_BRAND,
     logoUrl: profile?.logoUrl?.trim() || null,
     isSuperAdmin: isSuperAdmin(user),
+    memberRole: inWorkspace ? viewer.role : null,
+    viewingCompany: viewer.viewing?.orgName ?? null,
   }
 })

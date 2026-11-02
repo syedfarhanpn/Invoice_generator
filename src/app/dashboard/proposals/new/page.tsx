@@ -1,9 +1,9 @@
 import { PageHeader } from "@/components/app/page-header"
-import { hasPermission, requirePermission } from "@/lib/access"
+import { hasPermission, isWorkspaceAdmin, requirePermission } from "@/lib/access"
 import prisma from "@/lib/db"
+import { claudeConnected } from "@/lib/integrations/store"
 import { DEFAULT_VALIDITY_DAYS, DEFAULT_WARRANTY_DAYS, proposalBriefSchema } from "@/lib/proposals/input"
 import { proposalsReady } from "@/lib/proposals/store"
-import { proposalWriterConfigured } from "@/lib/proposals/writer"
 import { getWorkspaceIdentity } from "@/lib/workspace-identity"
 
 import { ProposalForm } from "../proposal-form"
@@ -34,11 +34,13 @@ export default async function NewProposalPage(props: { searchParams: Promise<{ c
     )
   }
 
-  const [{ workspaceId }, searchParams, canCreateClient] = await Promise.all([
+  const [{ workspaceId, orgId }, searchParams, canCreateClient, canManage] = await Promise.all([
     getWorkspaceIdentity(),
     props.searchParams,
     hasPermission("clients", "write"),
+    isWorkspaceAdmin(),
   ])
+  const connected = await claudeConnected(orgId)
 
   const [clients, profile, latest] = await Promise.all([
     prisma.client.findMany({
@@ -62,7 +64,7 @@ export default async function NewProposalPage(props: { searchParams: Promise<{ c
   return (
     <div className="space-y-5">
       {header}
-      {!proposalWriterConfigured() && <ClaudeKeyNotice />}
+      {!connected && <ClaudeKeyNotice canManage={canManage} />}
       <ProposalForm
         mode="create"
         clients={clients}

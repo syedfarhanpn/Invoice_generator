@@ -1,4 +1,5 @@
 import { CircleAlert } from "lucide-react"
+import Link from "next/link"
 
 /**
  * Shown in place of a proposal page while something it needs is missing -
@@ -26,12 +27,29 @@ export function MigrationNotice() {
   )
 }
 
-export function ClaudeKeyNotice() {
+/**
+ * Each company writes proposals on its own Anthropic account, so the fix is
+ * theirs to make - and only an owner or admin can, so everyone else is told
+ * who to ask rather than sent to a page they cannot change.
+ */
+export function ClaudeKeyNotice({ canManage }: { canManage: boolean }) {
   return (
-    <SetupNotice title="Claude is not connected yet">
-      Add <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">ANTHROPIC_API_KEY</code> to the server&apos;s
-      environment (<code className="font-mono text-xs">.env</code> locally, and your host&apos;s settings in
-      production), then restart. Existing proposals still open and download without it.
+    <SetupNotice title="Claude is not connected for your company">
+      {canManage ? (
+        <>
+          Add your company&apos;s Anthropic API key in{" "}
+          <Link
+            href="/dashboard/settings/integrations"
+            className="font-medium text-foreground underline-offset-4 hover:underline"
+          >
+            Settings - Integrations
+          </Link>
+          . Proposals are then written, and billed, on your own Anthropic account.
+        </>
+      ) : (
+        <>Ask your company&apos;s owner or an admin to connect Claude in Settings - Integrations.</>
+      )}{" "}
+      Existing proposals still open and download without it.
     </SetupNotice>
   )
 }

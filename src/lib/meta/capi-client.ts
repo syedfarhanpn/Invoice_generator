@@ -1,22 +1,24 @@
 import { randomUUID } from "node:crypto"
 
 import prisma from "@/lib/db"
+import { metaConnection } from "@/lib/integrations/store"
 
 import { batchEvents, buildLeadStageEvent, type LeadStageEventInput } from "./capi-event"
 
 /**
  * Sending lead-stage events to Meta's Conversions API.
  *
- * Configured entirely from the environment, and SILENT when it is not: a
- * workspace that has not connected Meta must not see errors on every board
- * drag. Three variables, all server-side - the access token in particular
- * must never reach the browser, which is why there is no NEXT_PUBLIC_ here:
+ * Each company connects its OWN dataset, in Settings - Integrations, and its
+ * leads go there and nowhere else (src/lib/integrations/store.ts). SILENT
+ * when a company has not connected Meta: it must not see errors on every
+ * board drag. What a connection holds, all of it server-side - the access
+ * token in particular never reaches the browser:
  *
- *   META_DATASET_ID         the dataset (formerly pixel) the events go to
- *   META_CAPI_ACCESS_TOKEN  a System User token with ads_management
- *   META_TEST_EVENT_CODE    optional; routes events to Test Events in Events
- *                           Manager instead of the live dataset. Remove it
- *                           once the events look right.
+ *   dataset id        the dataset (formerly pixel) the events go to
+ *   access token      a System User token with ads_management
+ *   test event code   optional; routes events to Test Events in Events
+ *                     Manager instead of the live dataset. Remove it once
+ *                     the events look right.
  *
  * Every attempt - sent, refused by us, or rejected by Meta - is written to
  * SyncLog, so "is this working" has an answer that is not a guess. The log
@@ -33,27 +35,6 @@ export const GRAPH_API_VERSION = "v26.0"
  */
 export const LEAD_EVENT_SOURCE = "Pixie Webs CRM"
 
-type CapiConfig = {
-  datasetId: string
-  accessToken: string
-  testEventCode: string | null
-}
-
-/** The configuration, or null when Meta is not connected. */
-export function capiConfig(): CapiConfig | null {
-  const datasetId = process.env.META_DATASET_ID?.trim()
-  const accessToken = process.env.META_CAPI_ACCESS_TOKEN?.trim()
-  // Both or nothing. A dataset id with no token would fail every call, and
-  // failing quietly on each drag is worse than not being switched on.
-  if (!datasetId || !accessToken) return null
-  if (!/^\d+$/.test(datasetId)) return null
-  return {
-    datasetId,
-    accessToken,
-    testEventCode: process.env.META_TEST_EVENT_CODE?.trim() || null,
-  }
-}
-
 type SendOutcome = { sent: number; refused: number; failed: number }
 
 /**
@@ -68,8 +49,11 @@ export async function sendLeadStageEvents(
   orgId: string | null,
   inputs: LeadStageEventInput[]
 ): Promise<SendOutcome> {
-  const config = capiConfig()
-  if (!config || inputs.length === 0) return { sent: 0, refused: 0, failed: 0 }
+  if (inputs.length === 0) return { sent: 0, refused: 0, failed: 0 }
+  // The company's own dataset. A company with none sends nothing, rather than
+  // borrowing another company's.
+  const config = await metaConnection(orgId)
+  if (!config) return { sent: 0, refused: 0, failed: 0 }
 
   const outcome: SendOutcome = { sent: 0, refused: 0, failed: 0 }
   const ready = []

@@ -120,7 +120,11 @@ export const getCurrentUser = cache(async (): Promise<User> => {
   return user
 })
 
-/** True for the product operator, not for a tenant. */
+/**
+ * True for the platform admin: the operator of the product, not a company in
+ * it. They administer companies and accounts from /dashboard/admin, and see
+ * inside a company only by viewing it read-only (src/lib/access.ts).
+ */
 export function isSuperAdmin(user: Pick<User, "role">): boolean {
   return user.role === "SUPER_ADMIN"
 }

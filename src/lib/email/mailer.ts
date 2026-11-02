@@ -12,6 +12,9 @@
  * falls back to showing a copyable link.
  */
 
+import { viewingOrgId } from "@/lib/viewing"
+import { VIEWING_READ_ONLY_MESSAGE } from "@/lib/viewing-rules"
+
 export type EmailMessage = {
   to: string
   subject: string
@@ -31,6 +34,13 @@ export function mailerConfigured(): boolean {
 }
 
 export async function sendEmail(message: EmailMessage): Promise<SendResult> {
+  // Viewing a company is read-only, and an email is the one change nothing
+  // can take back. The database refuses writes on its own; this refuses the
+  // send, so an action that emails before it saves cannot get one out.
+  if (await viewingOrgId()) {
+    return { ok: false, reason: "failed", message: VIEWING_READ_ONLY_MESSAGE }
+  }
+
   const apiKey = process.env.RESEND_API_KEY?.trim()
   const from = process.env.EMAIL_FROM?.trim()
 

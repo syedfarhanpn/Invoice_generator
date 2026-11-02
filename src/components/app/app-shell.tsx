@@ -8,6 +8,7 @@ import {
   CalendarDays,
   CalendarSync,
   ChevronsLeft,
+  Eye,
   FileText,
   FolderKanban,
   LayoutGrid,
@@ -24,6 +25,7 @@ import {
   X,
 } from "lucide-react"
 
+import { stopViewingCompany } from "@/app/dashboard/admin/actions"
 import { logout } from "@/app/login/actions"
 import {
   DropdownMenu,
@@ -256,6 +258,8 @@ export function AppShell({
   brandName,
   logoUrl,
   isSuperAdmin,
+  roleLabel,
+  viewingCompany,
   matrix,
   children,
 }: {
@@ -267,6 +271,10 @@ export function AppShell({
   /** Their uploaded logo, from the same profile. Null uses the glyph. */
   logoUrl?: string | null
   isSuperAdmin: boolean
+  /** What the account menu calls them: "Platform admin", "Owner", "Developer". */
+  roleLabel: string
+  /** Set while the platform admin is viewing a company, read-only. */
+  viewingCompany: string | null
   /**
    * What the viewer may read, resolved on the server by src/lib/access.ts.
    * Used to decide which entries the rail shows - a courtesy, not a control.
@@ -375,6 +383,31 @@ export function AppShell({
       )}
 
       <div className="flex min-w-0 flex-1 flex-col">
+        {/* On the platform admin's screen only - the company sees nothing.
+            Always visible while viewing, so a company's screens are never
+            mistaken for the admin's own, and the way out is one click. */}
+        {viewingCompany && (
+          <div
+            role="status"
+            className="flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b bg-tone-warning-bg px-4 py-2 text-sm text-tone-warning md:px-6"
+          >
+            <span className="flex min-w-0 items-center gap-2">
+              <Eye className="size-4 shrink-0" strokeWidth={1.75} />
+              <span className="min-w-0 truncate">
+                Viewing <span className="font-medium">{viewingCompany}</span> as platform admin · read-only
+              </span>
+            </span>
+            <form action={stopViewingCompany}>
+              <button
+                type="submit"
+                className="rounded-md px-2 py-0.5 font-medium underline-offset-4 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                Exit
+              </button>
+            </form>
+          </div>
+        )}
+
         <header className="flex h-16 shrink-0 items-center gap-3 border-b bg-background px-4 md:px-6">
           <button
             type="button"
@@ -427,7 +460,7 @@ export function AppShell({
 
                 <div className="px-2 pb-2">
                   <span className="inline-flex rounded-md bg-tone-info-bg px-2 py-0.5 text-xs font-medium text-tone-info">
-                    {isSuperAdmin ? "Admin" : "Member"}
+                    {roleLabel}
                   </span>
                 </div>
 

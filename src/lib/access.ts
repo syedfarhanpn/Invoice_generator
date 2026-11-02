@@ -2,8 +2,10 @@ import { cache } from "react"
 import { redirect } from "next/navigation"
 import type { MemberRole, MemberStatus, PermissionAccess } from "@prisma/client"
 
-import { getCurrentUser } from "@/lib/current-user"
+import { getCurrentUser, isSuperAdmin } from "@/lib/current-user"
 import prisma from "@/lib/db"
+import { viewingOrgId } from "@/lib/viewing"
+import { VIEWING_READ_ONLY_MESSAGE } from "@/lib/viewing-rules"
 import {
   can,
   isAdminRole,
@@ -31,10 +33,13 @@ import {
  *  - requirePermission REDIRECTS rather than returning false, so forgetting to
  *    check the result cannot leave a page rendering.
  *
- * The super admin is deliberately NOT short-circuited here. They operate the
- * product and administer accounts; that is not the same as being entitled to
- * read a tenant's commercial records, and src/app/dashboard/admin is where
- * their powers live.
+ * The super admin is deliberately NOT short-circuited here: being the platform
+ * admin does not by itself put you inside any company. The one way in is
+ * viewing - opened from the Accounts console, recorded in the admin audit
+ * trail, and read-only. While a company is being viewed, getViewer() answers
+ * as that company with every module capped at "read", so each check below
+ * refuses writes the way it would for any view-only member, and the database
+ * client refuses them again underneath (src/lib/db.ts).
  */
 
 export type Viewer = {
@@ -48,7 +53,20 @@ export type Viewer = {
    *  issuing a second one for the same row. */
   status: MemberStatus | null
   context: PermissionContext | null
+  /**
+   * Set while the platform admin is viewing a company. They hold no
+   * membership in it, so membershipId and role stay null: nothing can be
+   * assigned to them and nothing is recorded against a member.
+   */
+  viewing: { orgId: string; orgName: string } | null
 }
+
+/**
+ * The platform admin's view of a company: everything an administrator can
+ * see, capped at read. ADMIN rather than OWNER only so the starting matrix is
+ * "all modules" - readOnly then takes every one of them down to "read".
+ */
+const VIEWING_CONTEXT: PermissionContext = { role: "ADMIN", status: "ACTIVE", readOnly: true }
 
 /** The stored enum, as the pure permission model names it. */
 export const ACCESS_FROM_DB: Record<PermissionAccess, Access> = {
@@ -71,6 +89,28 @@ export const ACCESS_TO_DB: Record<Access, PermissionAccess> = {
  */
 export const getViewer = cache(async (): Promise<Viewer> => {
   const user = await getCurrentUser()
+
+  // Honoured for a super admin only. Anyone else holding the cookie is
+  // treated exactly as they would be without it.
+  if (isSuperAdmin(user)) {
+    const viewingId = await viewingOrgId()
+    const org = viewingId
+      ? await prisma.organisation.findUnique({ where: { id: viewingId }, select: { id: true, name: true } })
+      : null
+
+    if (org) {
+      return {
+        userId: user.id,
+        email: user.email,
+        membershipId: null,
+        orgId: org.id,
+        role: null,
+        status: "ACTIVE",
+        context: VIEWING_CONTEXT,
+        viewing: { orgId: org.id, orgName: org.name },
+      }
+    }
+  }
 
   let membership = await prisma.membership.findFirst({
     where: { userId: user.id, status: { in: ["ACTIVE", "INVITED", "SUSPENDED"] } },
@@ -112,6 +152,7 @@ export const getViewer = cache(async (): Promise<Viewer> => {
       role: null,
       status: null,
       context: null,
+      viewing: null,
     }
   }
 
@@ -150,6 +191,7 @@ export const getViewer = cache(async (): Promise<Viewer> => {
       roleOverrides,
       memberOverrides,
     },
+    viewing: null,
   }
 })
 
@@ -172,13 +214,24 @@ export async function requirePermission(module: Module, required: Access): Promi
   const viewer = await getViewer()
 
   if (!viewer.context) {
-    redirect("/no-workspace")
+    redirect(await noWorkspaceHome())
   }
   if (!can(viewer.context, module, required)) {
     redirect(`/denied?module=${encodeURIComponent(module)}`)
   }
 
   return viewer
+}
+
+/**
+ * Where someone with no company to work in belongs.
+ *
+ * The platform admin belongs to no company by design, so for them this is
+ * not a dead end: their home is the Accounts console, where the companies
+ * are. Anyone else has simply not been added to a team yet.
+ */
+export async function noWorkspaceHome(): Promise<string> {
+  return isSuperAdmin(await getCurrentUser()) ? "/dashboard/admin" : "/no-workspace"
 }
 
 /**
@@ -191,7 +244,9 @@ export async function assertPermission(module: Module, required: Access): Promis
   const viewer = await getViewer()
 
   if (!viewer.context || !can(viewer.context, module, required)) {
-    throw new Error("You do not have permission to do that.")
+    // Some screens offer their buttons to everyone and leave the refusal to
+    // here. While viewing, "no permission" would be the wrong explanation.
+    throw new Error(viewer.viewing ? VIEWING_READ_ONLY_MESSAGE : "You do not have permission to do that.")
   }
 
   return viewer
@@ -222,7 +277,7 @@ export async function assertWorkspaceAdmin(): Promise<Viewer> {
   const viewer = await getViewer()
 
   if (!isAdminRole(viewer.role, viewer.status)) {
-    throw new Error("Only a workspace owner or admin can do that.")
+    throw new Error(viewer.viewing ? VIEWING_READ_ONLY_MESSAGE : "Only a workspace owner or admin can do that.")
   }
 
   return viewer

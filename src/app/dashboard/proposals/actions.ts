@@ -20,6 +20,7 @@ import { briefMessage, revisionMessage, type BriefParty } from "@/lib/proposals/
 import { nextProposalNumber, proposalsReady, PROPOSALS_SETUP_MESSAGE } from "@/lib/proposals/store"
 import { addDays, cleanDraft, proposalDay, proposalRef } from "@/lib/proposals/view"
 import { ProposalWriterError, writeProposal } from "@/lib/proposals/writer"
+import { claudeKey } from "@/lib/integrations/store"
 import { getWorkspaceIdentity } from "@/lib/workspace-identity"
 
 /**
@@ -38,6 +39,8 @@ import { getWorkspaceIdentity } from "@/lib/workspace-identity"
 export type ProposalResult = { ok: true; id: string } | { ok: false; error: string }
 
 const DENIED = "You do not have permission to do that."
+const CLAUDE_NOT_CONNECTED =
+  "Claude is not connected for your company yet. An owner or admin can add your Anthropic API key in Settings - Integrations."
 const UNEXPECTED = "Something went wrong while saving the proposal. Try again."
 
 async function canWrite(): Promise<boolean> {
@@ -65,9 +68,18 @@ async function studioName(workspaceId: string): Promise<string> {
   return profile?.businessName ?? ""
 }
 
+/**
+ * Writes with the company's OWN Anthropic key. There is no fallback to
+ * anyone else's: a company that has not connected Claude is told how to,
+ * rather than having its proposals billed to another account.
+ */
 async function draftWith(message: string): Promise<{ draft: ProposalDraft; model: string } | { error: string }> {
+  const { orgId } = await getWorkspaceIdentity()
+  const apiKey = await claudeKey(orgId)
+  if (!apiKey) return { error: CLAUDE_NOT_CONNECTED }
+
   try {
-    return await writeProposal(message)
+    return await writeProposal(message, apiKey)
   } catch (error) {
     if (error instanceof ProposalWriterError) return { error: error.message }
     console.error("[proposals] generation failed", error)

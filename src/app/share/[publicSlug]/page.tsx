@@ -8,10 +8,15 @@ import type { InvoiceContent, ContractContent, SignaturePayload } from "@/lib/ty
 import Link from "next/link"
 import { buttonVariants } from "@/components/ui/button"
 import { documentKind } from "@/lib/document-kinds"
+import { viewingOrgId } from "@/lib/viewing"
 
 const VIEW_DEDUPE_WINDOW_MS = 60 * 60 * 1000 // 1 hour
 
 async function logViewOnce(documentId: string) {
+  // The platform admin opening a company's link while viewing it is not the
+  // client reading their invoice, and must not show up as if they were.
+  if (await viewingOrgId()) return
+
   const { hash, userAgent } = await getViewerFingerprint()
   const since = new Date(Date.now() - VIEW_DEDUPE_WINDOW_MS)
 

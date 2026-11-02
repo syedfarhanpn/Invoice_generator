@@ -1,7 +1,9 @@
 import { Building2 } from "lucide-react"
+import { redirect } from "next/navigation"
 
 import { logout } from "@/app/login/actions"
 import { Button } from "@/components/ui/button"
+import { getCurrentUser, isSuperAdmin } from "@/lib/current-user"
 
 export const metadata = { title: "No workspace" }
 
@@ -12,7 +14,11 @@ export const metadata = { title: "No workspace" }
  * is simply nothing for them yet. Signing out is the only action offered,
  * because it is the only one that would help.
  */
-export default function NoWorkspacePage() {
+export default async function NoWorkspacePage() {
+  // The platform admin belongs to no company by design. Their home is the
+  // companies, not a page telling them to ask an administrator.
+  if (isSuperAdmin(await getCurrentUser())) redirect("/dashboard/admin")
+
   return (
     <div className="flex min-h-[60vh] items-center justify-center p-6">
       <div className="max-w-md rounded-xl border bg-card p-8 text-center">

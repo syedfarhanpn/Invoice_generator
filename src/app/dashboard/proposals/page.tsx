@@ -2,12 +2,12 @@ import Link from "next/link"
 import { FileText, Plus } from "lucide-react"
 
 import { buttonVariants } from "@/components/ui/button"
-import { hasPermission, requirePermission } from "@/lib/access"
+import { hasPermission, isWorkspaceAdmin, requirePermission } from "@/lib/access"
 import { formatTableDay } from "@/lib/dates"
 import prisma from "@/lib/db"
+import { claudeConnected } from "@/lib/integrations/store"
 import { proposalsReady } from "@/lib/proposals/store"
 import { formatProposalMoney } from "@/lib/proposals/view"
-import { proposalWriterConfigured } from "@/lib/proposals/writer"
 import { getWorkspaceIdentity } from "@/lib/workspace-identity"
 
 import { ClaudeKeyNotice, MigrationNotice } from "./setup-notice"
@@ -44,7 +44,8 @@ export default async function ProposalsPage() {
     )
   }
 
-  const { workspaceId } = await getWorkspaceIdentity()
+  const { workspaceId, orgId } = await getWorkspaceIdentity()
+  const [connected, canManage] = await Promise.all([claudeConnected(orgId), isWorkspaceAdmin()])
   const proposals = await prisma.proposal.findMany({
     where: { userId: workspaceId },
     orderBy: { createdAt: "desc" },
@@ -64,7 +65,7 @@ export default async function ProposalsPage() {
   return (
     <div className="space-y-5">
       {header}
-      {canWrite && !proposalWriterConfigured() && <ClaudeKeyNotice />}
+      {canWrite && !connected && <ClaudeKeyNotice canManage={canManage} />}
 
       {proposals.length === 0 ? (
         <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed px-6 py-14 text-center">

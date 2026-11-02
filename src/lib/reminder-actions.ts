@@ -2,6 +2,7 @@
 
 import { getCurrentUser } from "@/lib/current-user"
 import { dueReminders, markAnnounced, unannounced } from "@/lib/reminders"
+import { viewingOrgId } from "@/lib/viewing"
 
 /**
  * What the bell polls.
@@ -24,6 +25,11 @@ export async function fetchReminders(): Promise<{
   /** Those not yet announced, returned once and then stamped. */
   fresh: ReminderView[]
 }> {
+  // Reminders belong to the person signed in, and the platform admin viewing
+  // a company is not anyone in it. Answering before the stamp below also
+  // keeps the poll from attempting a write that viewing would refuse.
+  if (await viewingOrgId()) return { due: [], fresh: [] }
+
   const user = await getCurrentUser()
   const now = new Date()
 

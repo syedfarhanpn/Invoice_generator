@@ -13,11 +13,13 @@ datasource db {
   // Connection URLs live in prisma.config.ts (Prisma 7+).
 }
 
-// Single-admin app: exactly one User row should ever exist (see
-// src/lib/current-user.ts). clientSeq backs Client.clientNumber allocation.
+// Accounts. One platform admin operates the product; everyone else belongs to
+// a company through a Membership (see src/lib/current-user.ts and
+// src/lib/access.ts). clientSeq backs Client.clientNumber allocation, on the
+// company owner's row.
 enum Role {
-  USER // a tenant: owns their own clients, documents and business profile
-  SUPER_ADMIN // operator of the product: manages accounts, never reads tenant documents
+  USER // anyone in a company: what they may do there comes from their Membership
+  SUPER_ADMIN // the platform admin: adds companies, manages accounts, views companies read-only (audited)
   @@schema("public")
 }
 
@@ -94,7 +96,44 @@ model Organisation {
   syncLogs         SyncLog[]
   permissionGrants PermissionGrant[]
   memberAuditLogs  MemberAuditLog[]
+  integrations     CompanyIntegration[]
 
+  @@schema("public")
+}
+
+/// The outside services a company connects with its OWN account.
+enum IntegrationProvider {
+  META_CAPI // Meta Conversions API: the dataset its lead stages are reported to
+  ANTHROPIC // Claude, for writing proposals - billed to the company's own key
+
+  @@schema("public")
+}
+
+/// One company's connection to one outside service.
+///
+/// Per company, never shared: one company's leads must never reach another's
+/// Meta dataset, and one company's proposals must never bill another's
+/// Anthropic account. The secret is encrypted by the app before it is
+/// stored (src/lib/integrations/crypto.ts), so this table never holds a
+/// token in clear, and the page that manages it never sends one back.
+model CompanyIntegration {
+  id       String              @id @default(cuid())
+  orgId    String
+  org      Organisation        @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  provider IntegrationProvider
+
+  /// What is not secret: the Meta dataset id and test event code.
+  config     Json?
+  /// The token or key, encrypted: "v1.<iv>.<tag>.<ciphertext>".
+  secret     String
+  /// Its last four characters, so the page can say which key is connected
+  /// without ever decrypting it.
+  secretHint String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([orgId, provider])
   @@schema("public")
 }
 

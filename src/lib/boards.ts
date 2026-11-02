@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto"
 import type { PipelineKind, StageType } from "@prisma/client"
 
 import prisma from "@/lib/db"
+import { viewingOrgId } from "@/lib/viewing"
 
 /**
  * One board primitive, three panels.
@@ -94,6 +95,14 @@ export async function ensureBoard(userId: string, kind: PipelineKind): Promise<B
   })
 
   if (existing) return toBoard(existing)
+
+  // The platform admin viewing a company that has never opened this board.
+  // Creating it would be a write into their company - and a refused one,
+  // which would turn a harmless look into an error page. An empty board is
+  // the truth anyway: there is nothing on it yet.
+  if (await viewingOrgId()) {
+    return { id: "", name: BOARD_NAME[kind], kind, stages: [] }
+  }
 
   // LEADS has no seed - if it is missing, the CRM has not been set up and
   // inventing stages would be a guess at someone's sales process.

@@ -167,6 +167,12 @@ export type PermissionContext = {
   roleOverrides?: Partial<Record<Module, Access>>
   /** What has been set for this one person, replacing both. */
   memberOverrides?: Partial<Record<Module, Access>>
+  /**
+   * Caps every module at "read", whatever the role says - owner included.
+   * Set for the platform admin viewing a company: they may see all of it and
+   * change none of it. Applied after every other rule, so nothing can lift it.
+   */
+  readOnly?: boolean
 }
 
 /**
@@ -175,9 +181,15 @@ export type PermissionContext = {
  * Order: owner wins, then inactive loses, then member override, then role
  * override, then the built-in default. Later entries are more specific, which
  * is the order a reader expects, and the two absolute rules are applied first
- * so nothing below can contradict them.
+ * so nothing below can contradict them. A read-only context is then capped,
+ * last, so even the owner rule cannot lift it back to "write".
  */
 export function resolveAccess(context: PermissionContext, module: Module): Access {
+  const held = heldAccess(context, module)
+  return context.readOnly && held === "write" ? "read" : held
+}
+
+function heldAccess(context: PermissionContext, module: Module): Access {
   // Rule 1: an owner is never locked out of their own workspace.
   if (context.role === "OWNER") return "write"
 

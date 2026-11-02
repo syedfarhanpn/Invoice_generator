@@ -1,5 +1,6 @@
 import { AppShell } from "@/components/app/app-shell"
 import { viewerMatrix } from "@/lib/access"
+import { accountRoleLabel } from "@/lib/members"
 import { getWorkspaceIdentity } from "@/lib/workspace-identity"
 
 /**
@@ -20,6 +21,8 @@ export default async function WorkspaceLayout({ children }: { children: React.Re
       brandName={identity.brandName}
       logoUrl={identity.logoUrl}
       isSuperAdmin={identity.isSuperAdmin}
+      roleLabel={accountRoleLabel(identity)}
+      viewingCompany={identity.viewingCompany}
       matrix={matrix}
     >
       {children}

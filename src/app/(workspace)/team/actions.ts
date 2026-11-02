@@ -129,14 +129,24 @@ export async function inviteMember(input: {
       where: { email },
       update: {},
       create: { email, role: "USER" },
-      select: { id: true },
+      select: { id: true, role: true },
     })
 
+    // One email, one company. Signing in drops a person into the first
+    // company they belong to, so a second membership is a company they could
+    // never reach - and the platform admin belongs to none of them.
+    if (user.role === "SUPER_ADMIN") {
+      throw new Error("That address is the platform admin's and cannot join a company.")
+    }
+
     const existing = await tx.membership.findFirst({
-      where: { orgId, userId: user.id },
-      select: { id: true },
+      where: { userId: user.id },
+      select: { orgId: true },
     })
-    if (existing) throw new Error("That person is already in this workspace.")
+    if (existing?.orgId === orgId) throw new Error("That person is already in this workspace.")
+    if (existing) {
+      throw new Error("That address already belongs to another company. Each person can be in one company only.")
+    }
 
     const created = await tx.membership.create({
       data: {

@@ -2,11 +2,11 @@ import Link from "next/link"
 import { notFound } from "next/navigation"
 
 import { PageHeader } from "@/components/app/page-header"
-import { hasPermission, requirePermission } from "@/lib/access"
+import { hasPermission, isWorkspaceAdmin, requirePermission } from "@/lib/access"
 import { formatDocumentDateTime } from "@/lib/dates"
+import { claudeConnected } from "@/lib/integrations/store"
 import { loadProposal } from "@/lib/proposals/load"
 import { proposalsReady } from "@/lib/proposals/store"
-import { proposalWriterConfigured } from "@/lib/proposals/writer"
 import { getWorkspaceIdentity } from "@/lib/workspace-identity"
 
 import { ClaudeKeyNotice, MigrationNotice, SetupNotice } from "../setup-notice"
@@ -31,11 +31,13 @@ export default async function ProposalPage(props: { params: Promise<{ id: string
     )
   }
 
-  const [{ id }, { workspaceId }, canWrite] = await Promise.all([
+  const [{ id }, { workspaceId, orgId }, canWrite, canManage] = await Promise.all([
     props.params,
     getWorkspaceIdentity(),
     hasPermission("documents", "write"),
+    isWorkspaceAdmin(),
   ])
+  const connected = await claudeConnected(orgId)
 
   const loaded = await loadProposal(id, workspaceId)
   if (!loaded) notFound()
@@ -72,7 +74,7 @@ export default async function ProposalPage(props: { params: Promise<{ id: string
         />
       </div>
 
-      {canWrite && !proposalWriterConfigured() && <ClaudeKeyNotice />}
+      {canWrite && !connected && <ClaudeKeyNotice canManage={canManage} />}
 
       {view ? (
         <ProposalDocument view={view} paper={profile?.paperColor} font={profile?.documentFont} />

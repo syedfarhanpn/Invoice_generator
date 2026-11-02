@@ -1,5 +1,6 @@
 import { AppShell } from "@/components/app/app-shell"
 import { viewerMatrix } from "@/lib/access"
+import { accountRoleLabel } from "@/lib/members"
 import { getWorkspaceIdentity } from "@/lib/workspace-identity"
 
 /**
@@ -20,6 +21,8 @@ export default async function DashboardLayout({ children }: { children: React.Re
       brandName={identity.brandName}
       logoUrl={identity.logoUrl}
       isSuperAdmin={identity.isSuperAdmin}
+      roleLabel={accountRoleLabel(identity)}
+      viewingCompany={identity.viewingCompany}
       matrix={matrix}
     >
       <div className="flex flex-1 flex-col gap-5 p-4 md:p-6">{children}</div>
