@@ -1,11 +1,16 @@
-import type { IntegrationProvider } from "@prisma/client"
+import type { IntegrationProvider, Prisma } from "@prisma/client"
 
 import prisma from "@/lib/db"
 
-import { decryptSecret, integrationsKey, secretContext } from "./crypto"
+import { decryptSecret, encryptSecret, integrationsKey, secretContext, secretHint } from "./crypto"
 
 /**
- * A company's own connections to Meta and Claude: reading them back.
+ * A company's own connections to Meta and Claude.
+ *
+ * Who may change which: a company's owner and admins add their own Claude
+ * key (src/app/dashboard/settings/integrations); the platform admin sets up
+ * each company's Meta connection from the Accounts console, and companies
+ * only see its status (src/app/dashboard/admin).
  *
  * Every lookup is by company. There is deliberately no "platform default"
  * once the table exists: falling back to someone else's Meta token would
@@ -149,29 +154,67 @@ const NOT_CONNECTED: IntegrationSummary = {
   updatedAt: null,
 }
 
-export async function integrationSummaries(
-  orgId: string
-): Promise<Record<IntegrationProvider, IntegrationSummary>> {
+export type CompanySummaries = Record<IntegrationProvider, IntegrationSummary>
+
+const EMPTY_SUMMARIES: CompanySummaries = { META_CAPI: NOT_CONNECTED, ANTHROPIC: NOT_CONNECTED }
+
+/** Several companies in one query - the platform admin's company list. */
+export async function integrationSummariesFor(orgIds: string[]): Promise<Map<string, CompanySummaries>> {
   const rows = await prisma.companyIntegration.findMany({
-    where: { orgId },
-    select: { provider: true, config: true, secret: true, secretHint: true, updatedAt: true },
+    where: { orgId: { in: orgIds } },
+    select: { orgId: true, provider: true, config: true, secret: true, secretHint: true, updatedAt: true },
   })
   const key = integrationsKey()
 
-  const summaries: Record<IntegrationProvider, IntegrationSummary> = {
-    META_CAPI: NOT_CONNECTED,
-    ANTHROPIC: NOT_CONNECTED,
-  }
+  const byCompany = new Map<string, CompanySummaries>()
   for (const row of rows) {
     const config = (row.config && typeof row.config === "object" && !Array.isArray(row.config) ? row.config : {}) as Record<string, unknown>
+    const summaries = byCompany.get(row.orgId) ?? { ...EMPTY_SUMMARIES }
     summaries[row.provider] = {
       connected: true,
-      readable: key != null && decryptSecret(row.secret, secretContext(orgId, row.provider), key) != null,
+      readable: key != null && decryptSecret(row.secret, secretContext(row.orgId, row.provider), key) != null,
       hint: row.secretHint,
       datasetId: text(config.datasetId),
       testEventCode: text(config.testEventCode),
       updatedAt: row.updatedAt,
     }
+    byCompany.set(row.orgId, summaries)
   }
-  return summaries
+  return byCompany
+}
+
+export async function integrationSummaries(orgId: string): Promise<CompanySummaries> {
+  return (await integrationSummariesFor([orgId])).get(orgId) ?? EMPTY_SUMMARIES
+}
+
+export function emptySummaries(): CompanySummaries {
+  return EMPTY_SUMMARIES
+}
+
+// ---------------------------------------------------------------------------
+// Writing
+// ---------------------------------------------------------------------------
+
+/**
+ * Encrypts and saves one connection, inside the caller's transaction so the
+ * audit row each caller writes lands with it or not at all. The only place
+ * a secret is written, so it is the only place it could be written in clear.
+ */
+export async function upsertIntegration(
+  tx: Prisma.TransactionClient,
+  args: {
+    orgId: string
+    provider: IntegrationProvider
+    secret: string
+    config: Prisma.InputJsonValue | undefined
+    key: Buffer
+  }
+) {
+  const secret = encryptSecret(args.secret, secretContext(args.orgId, args.provider), args.key)
+  const hint = secretHint(args.secret)
+  await tx.companyIntegration.upsert({
+    where: { orgId_provider: { orgId: args.orgId, provider: args.provider } },
+    update: { secret, secretHint: hint, config: args.config },
+    create: { orgId: args.orgId, provider: args.provider, secret, secretHint: hint, config: args.config },
+  })
 }

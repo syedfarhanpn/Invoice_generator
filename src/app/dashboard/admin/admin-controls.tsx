@@ -214,30 +214,11 @@ function CompanyAdded({ result }: { result: Extract<CreateCompanyResult, { ok: t
 }
 
 /**
- * Submits the row's view form. A form rather than an onClick so that the
- * company name and the button beside it open the same view, and so the
- * pending state comes from the form itself.
+ * Submits a view form - the row's, or the one in the company popup. A form
+ * rather than an onClick, so the pending state comes from the form itself.
  */
-export function ViewCompanySubmit({
-  children,
-  variant,
-}: {
-  children: React.ReactNode
-  variant: "name" | "button"
-}) {
+export function ViewCompanySubmit({ children }: { children: React.ReactNode }) {
   const { pending } = useFormStatus()
-
-  if (variant === "name") {
-    return (
-      <button
-        type="submit"
-        disabled={pending}
-        className="rounded-sm text-left font-medium underline-offset-4 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
-      >
-        {children}
-      </button>
-    )
-  }
 
   return (
     <Button type="submit" size="sm" variant="outline" disabled={pending}>

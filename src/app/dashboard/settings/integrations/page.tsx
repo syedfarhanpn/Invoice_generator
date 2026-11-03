@@ -1,20 +1,21 @@
 import { SetupNotice } from "@/app/dashboard/proposals/setup-notice"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { requirePermission } from "@/lib/access"
-import { formatTableDay } from "@/lib/dates"
 import { encryptionConfigured } from "@/lib/integrations/crypto"
-import { integrationSummaries, integrationsReady, type IntegrationSummary } from "@/lib/integrations/store"
+import { integrationSummaries, integrationsReady } from "@/lib/integrations/store"
+import { toConnectionView } from "@/lib/integrations/view"
 import { isAdminRole } from "@/lib/permissions"
-import { ClaudeForm, MetaForm, type ConnectionView } from "./integration-forms"
+import { ClaudeForm, MetaStatus } from "./integration-forms"
 
 export const metadata = { title: "Integrations" }
 
 /**
  * The company's own Meta dataset and Claude key.
  *
- * Read by anyone who may read Settings, changed only by the owner and
- * admins. What reaches the browser is whether each is connected and the last
- * four characters of the key - never the key itself, to anyone, the platform
+ * Claude is the company's to connect: read by anyone who may read Settings,
+ * changed by the owner and admins. Meta is shown as status only - the
+ * platform admin sets it up from the Accounts console. What reaches the
+ * browser is whether each is connected, never a key, to anyone, the platform
  * admin viewing the company included.
  */
 export default async function IntegrationsPage() {
@@ -58,11 +59,12 @@ export default async function IntegrationsPage() {
           <CardTitle>Meta Conversions API</CardTitle>
           <CardDescription>
             Reports each lead&apos;s stage to your own dataset in Meta Events Manager, so Meta can steer your
-            ads toward the leads that become customers. Nothing is sent until this is connected.
+            ads toward the leads that become customers. Set up for you by your platform admin; nothing is sent
+            until it is connected.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <MetaForm view={toView(summaries.META_CAPI)} editable={editable} />
+          <MetaStatus view={toConnectionView(summaries.META_CAPI)} />
         </CardContent>
       </Card>
 
@@ -75,21 +77,9 @@ export default async function IntegrationsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <ClaudeForm view={toView(summaries.ANTHROPIC)} editable={editable} />
+          <ClaudeForm view={toConnectionView(summaries.ANTHROPIC)} editable={editable} />
         </CardContent>
       </Card>
     </div>
   )
-}
-
-/** Dates formatted here, so the client receives plain strings. */
-function toView(summary: IntegrationSummary): ConnectionView {
-  return {
-    connected: summary.connected,
-    readable: summary.readable,
-    hint: summary.hint,
-    datasetId: summary.datasetId,
-    testEventCode: summary.testEventCode,
-    updatedLabel: summary.updatedAt ? formatTableDay(summary.updatedAt) : null,
-  }
 }

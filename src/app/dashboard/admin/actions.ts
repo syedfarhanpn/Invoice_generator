@@ -10,8 +10,19 @@ import prisma from "@/lib/db"
 import { requireSuperAdmin } from "@/lib/current-user"
 import { canChangeRole, canRestore, canSuspend, type AdminTarget } from "@/lib/admin-guards"
 import { firstIssue, newCompanySchema, ownershipRefusal, slugify, uniqueSlug } from "@/lib/companies"
+import { checkMetaConnection } from "@/lib/integrations/checks"
+import { integrationsKey } from "@/lib/integrations/crypto"
+import {
+  integrationsReady,
+  INTEGRATIONS_KEY_MESSAGE,
+  INTEGRATIONS_SETUP_MESSAGE,
+  metaConnection,
+  upsertIntegration,
+} from "@/lib/integrations/store"
+import { normalizeMetaInput, type IntegrationResult, type MetaInput } from "@/lib/integrations/view"
 import { sendWorkspaceInvite, type InviteOutcome } from "@/lib/invites"
-import { VIEWING_COOKIE, VIEWING_COOKIE_OPTIONS } from "@/lib/viewing"
+import { VIEWING_COOKIE, VIEWING_COOKIE_OPTIONS, viewingOrgId } from "@/lib/viewing"
+import { VIEWING_READ_ONLY_MESSAGE } from "@/lib/viewing-rules"
 
 // ---------------------------------------------------------------------------
 // Platform administration: companies and the accounts in them.
@@ -222,6 +233,96 @@ export async function removeFromCompany(rawUserId: string) {
   })
 
   revalidateAdmin()
+}
+
+// ---------------------------------------------------------------------------
+// A company's Meta Conversions API - set up here, by the platform admin.
+//
+// Companies see only its status (Settings - Integrations) and have no action
+// that could change it. Results rather than throws, so "Meta did not accept
+// that token" survives production, where thrown messages are replaced.
+// ---------------------------------------------------------------------------
+
+type MetaTarget = { actorId: string; org: { id: string; name: string }; key: Buffer }
+
+/** The company, once everything a Meta change needs is in place. */
+async function metaTarget(rawOrgId: string): Promise<MetaTarget | { error: string }> {
+  const actor = await requireSuperAdmin()
+  // The database would refuse the write anyway; this says why.
+  if (await viewingOrgId()) return { error: VIEWING_READ_ONLY_MESSAGE }
+  if (!(await integrationsReady())) return { error: INTEGRATIONS_SETUP_MESSAGE }
+  const key = integrationsKey()
+  if (!key) return { error: INTEGRATIONS_KEY_MESSAGE }
+
+  const parsed = orgIdSchema.safeParse(rawOrgId)
+  const org = parsed.success
+    ? await prisma.organisation.findUnique({ where: { id: parsed.data }, select: { id: true, name: true } })
+    : null
+  if (!org) return { error: "That company no longer exists." }
+
+  return { actorId: actor.id, org, key }
+}
+
+export async function saveCompanyMeta(rawOrgId: string, input: MetaInput): Promise<IntegrationResult> {
+  const target = await metaTarget(rawOrgId)
+  if ("error" in target) return { ok: false, error: target.error }
+
+  const fields = normalizeMetaInput(input)
+  if (!fields.ok) return { ok: false, error: fields.error }
+
+  // A blank token keeps the one already saved for this company.
+  const accessToken = fields.accessToken ?? (await metaConnection(target.org.id))?.accessToken
+  if (!accessToken) return { ok: false, error: "Paste the access token from Events Manager." }
+
+  const check = await checkMetaConnection(fields.datasetId, accessToken)
+  if (!check.ok) return { ok: false, error: check.error }
+
+  await prisma.$transaction(async (tx) => {
+    await upsertIntegration(tx, {
+      orgId: target.org.id,
+      provider: "META_CAPI",
+      secret: accessToken,
+      config: { datasetId: fields.datasetId, testEventCode: fields.testEventCode },
+      key: target.key,
+    })
+    await tx.adminAuditLog.create({
+      data: {
+        actorId: target.actorId,
+        action: "company.meta_connected",
+        // Never the token, not even its last four.
+        meta: {
+          company: target.org.name,
+          orgId: target.org.id,
+          datasetId: fields.datasetId,
+          testEvents: fields.testEventCode != null,
+        },
+      },
+    })
+  })
+
+  revalidateAdmin()
+  revalidatePath("/dashboard/settings/integrations")
+  return { ok: true, warning: check.warning }
+}
+
+export async function disconnectCompanyMeta(rawOrgId: string): Promise<IntegrationResult> {
+  const target = await metaTarget(rawOrgId)
+  if ("error" in target) return { ok: false, error: target.error }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.companyIntegration.deleteMany({ where: { orgId: target.org.id, provider: "META_CAPI" } })
+    await tx.adminAuditLog.create({
+      data: {
+        actorId: target.actorId,
+        action: "company.meta_disconnected",
+        meta: { company: target.org.name, orgId: target.org.id },
+      },
+    })
+  })
+
+  revalidateAdmin()
+  revalidatePath("/dashboard/settings/integrations")
+  return { ok: true, warning: null }
 }
 
 // ---------------------------------------------------------------------------

@@ -7,10 +7,14 @@ import { getViewer } from "@/lib/access"
 import { requireSuperAdmin } from "@/lib/current-user"
 import { formatDocumentDateTime, formatTableDay } from "@/lib/dates"
 import prisma from "@/lib/db"
+import { encryptionConfigured } from "@/lib/integrations/crypto"
+import { emptySummaries, integrationSummariesFor, integrationsReady } from "@/lib/integrations/store"
+import { toConnectionView } from "@/lib/integrations/view"
 import { ROLE_LABEL } from "@/lib/members"
 import { viewingOrgId } from "@/lib/viewing"
 import { stopViewingCompany, viewCompany } from "./actions"
 import { AddCompanyForm, UserRowActions, ViewCompanySubmit } from "./admin-controls"
+import { CompanyName, type CompanyPanel } from "./company-dialog"
 
 export const metadata = { title: "Accounts" }
 
@@ -25,6 +29,8 @@ export const metadata = { title: "Accounts" }
  * The lists here carry names and COUNTS, never a client, an invoice or an
  * amount. Seeing inside a company is a separate, deliberate act - View -
  * which is read-only and recorded in the trail at the bottom of this page.
+ * A company's name opens its popup (company-dialog.tsx), which is also where
+ * its Meta Conversions API is set up: companies cannot change that one.
  */
 
 /** The audit trail's verbs, by action key. Unknown keys fall back to the key. */
@@ -37,6 +43,8 @@ const AUDIT_VERB: Record<string, string> = {
   "company.created": "added the company",
   "company.viewed": "viewed",
   "company.view_ended": "stopped viewing",
+  "company.meta_connected": "set up Meta for",
+  "company.meta_disconnected": "disconnected Meta for",
 }
 
 const TH = "px-4 py-3 font-medium"
@@ -103,6 +111,49 @@ export default async function AdminPage() {
   const viewing = viewer.viewing ?? (viewingCookie ? { orgId: viewingCookie, orgName: "a company" } : null)
   const suspended = users.filter((u) => u.status === "SUSPENDED").length
 
+  // Meta is set up here, per company, in each company's popup. Until the
+  // integrations table exists there is nothing to show or save.
+  const integrationsOn = await integrationsReady()
+  const summaries = integrationsOn ? await integrationSummariesFor(companies.map((c) => c.id)) : new Map()
+  const metaBlocked = viewing
+    ? "Exit viewing to change a company's Meta connection."
+    : !integrationsOn
+      ? "Needs the one-time database update first: run npm run db:migrate. Until then the server's own Meta settings are used, while there is one company."
+      : !encryptionConfigured()
+        ? "The server needs INTEGRATIONS_SECRET_KEY set before a token can be saved."
+        : null
+
+  const panels = new Map<string, CompanyPanel>(
+    companies.map((company) => {
+      const owner = company.members.find((m) => m.role === "OWNER") ?? null
+      const lastActive = company.members.reduce<Date | null>((latest, m) => {
+        const at = m.user.lastLoginAt
+        return at && (!latest || at > latest) ? at : latest
+      }, null)
+      const integrations = summaries.get(company.id) ?? emptySummaries()
+
+      return [
+        company.id,
+        {
+          id: company.id,
+          name: company.name,
+          addedLabel: formatTableDay(company.createdAt),
+          owner: owner
+            ? { name: owner.user.name, email: owner.user.email, invited: owner.status === "INVITED" }
+            : null,
+          team: company.members.length,
+          clients: owner ? (clientsByOwner.get(owner.userId) ?? 0) : null,
+          documents: owner ? (documentsByOwner.get(owner.userId) ?? 0) : null,
+          lastActiveLabel: formatTableDay(lastActive, "Never"),
+          meta: toConnectionView(integrations.META_CAPI),
+          claude: toConnectionView(integrations.ANTHROPIC),
+          metaBlocked,
+          isOpen: viewing?.orgId === company.id,
+        },
+      ]
+    })
+  )
+
   return (
     <div className="space-y-6">
       <div>
@@ -148,8 +199,8 @@ export default async function AdminPage() {
         <div>
           <h3 className="text-xl font-bold tracking-tight">Companies</h3>
           <p className="text-sm text-muted-foreground">
-            Click a company to look through it read-only. They are not notified, and nothing you open
-            changes their records.
+            Click a company&apos;s name for its details and its Meta connection. View looks through it
+            read-only; they are not notified, and nothing you open changes their records.
           </p>
         </div>
         <Card>
@@ -162,6 +213,7 @@ export default async function AdminPage() {
                   <th className={`${TH} text-right`}>Team</th>
                   <th className={`${TH} text-right`}>Clients</th>
                   <th className={`${TH} text-right`}>Documents</th>
+                  <th className={TH}>Meta</th>
                   <th className={TH}>Last active</th>
                   <th className={`${TH} text-right`}>
                     <span className="sr-only">View</span>
@@ -171,39 +223,27 @@ export default async function AdminPage() {
               <tbody>
                 {companies.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">
+                    <td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">
                       No companies yet. Add the first one above.
                     </td>
                   </tr>
                 )}
                 {companies.map((company) => {
-                  const owner = company.members.find((m) => m.role === "OWNER") ?? null
-                  const lastActive = company.members.reduce<Date | null>((latest, m) => {
-                    const at = m.user.lastLoginAt
-                    return at && (!latest || at > latest) ? at : latest
-                  }, null)
-                  const isOpen = viewing?.orgId === company.id
-                  const open = viewCompany.bind(null, company.id)
+                  const panel = panels.get(company.id)!
+                  const owner = panel.owner
 
                   return (
                     <tr key={company.id} className="border-b transition-colors last:border-b-0 hover:bg-muted/50">
                       <td className={TD}>
-                        <form action={open}>
-                          <ViewCompanySubmit variant="name">{company.name}</ViewCompanySubmit>
-                        </form>
-                        <span className="block text-xs text-muted-foreground">
-                          Added {formatTableDay(company.createdAt)}
-                        </span>
+                        <CompanyName company={panel} />
+                        <span className="block text-xs text-muted-foreground">Added {panel.addedLabel}</span>
                       </td>
                       <td className={TD}>
                         {owner ? (
                           <>
-                            <span className="block">{owner.user.name || owner.user.email}</span>
+                            <span className="block">{owner.name || owner.email}</span>
                             <span className="block text-xs text-muted-foreground">
-                              {[
-                                owner.user.name ? owner.user.email : null,
-                                owner.status === "INVITED" ? "Invited, not signed in yet" : null,
-                              ]
+                              {[owner.name ? owner.email : null, owner.invited ? "Invited, not signed in yet" : null]
                                 .filter(Boolean)
                                 .join(" · ")}
                             </span>
@@ -212,24 +252,29 @@ export default async function AdminPage() {
                           <span className="text-tone-warning">No owner</span>
                         )}
                       </td>
+                      <td className={`${TD} text-right tabular-nums text-muted-foreground`}>{panel.team}</td>
                       <td className={`${TD} text-right tabular-nums text-muted-foreground`}>
-                        {company.members.length}
-                      </td>
-                      <td className={`${TD} text-right tabular-nums text-muted-foreground`}>
-                        {owner ? (clientsByOwner.get(owner.userId) ?? 0) : "—"}
+                        {panel.clients ?? "—"}
                       </td>
                       <td className={`${TD} text-right tabular-nums text-muted-foreground`}>
-                        {owner ? (documentsByOwner.get(owner.userId) ?? 0) : "—"}
+                        {panel.documents ?? "—"}
                       </td>
-                      <td className={`${TD} whitespace-nowrap text-muted-foreground`}>
-                        {formatTableDay(lastActive, "Never")}
+                      <td className={`${TD} whitespace-nowrap`}>
+                        {!integrationsOn ? (
+                          <span className="text-muted-foreground">—</span>
+                        ) : panel.meta.connected ? (
+                          <span className="text-tone-success">Connected</span>
+                        ) : (
+                          <span className="text-muted-foreground">Not set up</span>
+                        )}
                       </td>
+                      <td className={`${TD} whitespace-nowrap text-muted-foreground`}>{panel.lastActiveLabel}</td>
                       <td className={`${TD} text-right`}>
-                        {isOpen ? (
+                        {panel.isOpen ? (
                           <Badge variant="secondary">Viewing</Badge>
                         ) : (
-                          <form action={open}>
-                            <ViewCompanySubmit variant="button">View</ViewCompanySubmit>
+                          <form action={viewCompany.bind(null, company.id)}>
+                            <ViewCompanySubmit>View</ViewCompanySubmit>
                           </form>
                         )}
                       </td>
